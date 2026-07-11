@@ -8,7 +8,6 @@ type cmp_sign =
 | LESS_EQUAL
 
 type action =
-(* | Binop of oper * atomic * atomic *)
 | LetR of string * string * oper * string
 | LetI of string * string * oper * int
 
@@ -16,7 +15,7 @@ type action =
 | Condition of string * cmp_sign * int
 | Return of string
 | Call of string
-| Ecall
+| EndOfProgram
 
 type nested = 
 | If of action * nested * nested
@@ -44,6 +43,7 @@ type instr =
 | BGE of string * string * string (* branch if >= *)
 | J of string
 | RET
+| ECALL
 
 let str_of_instr = function
 | LABEL(name) -> name ^ ":"
@@ -59,7 +59,8 @@ let str_of_instr = function
 | LD(rd, shift, addr) -> Printf.sprintf "ld %s, %d(%s)" rd shift addr
 | BGE(rs1, rs2, label) -> Printf.sprintf "bge %s, %s, %s" rs1 rs2 label
 | J(label) -> "j " ^ label
-| RET -> "ret";;
+| RET -> "ret"
+| ECALL -> "ecall";;
 let str_of_instr_w v = 
   match v with
   | LABEL(_) -> str_of_instr v ^ "\n"
@@ -70,7 +71,8 @@ let rec str_of_action (context : compile_context) = function
 | LetI(rd, rs1, op, imm) ->
     begin 
       match op with
-      | Add ->      str_of_instr_w (ADDI(rd, rs1, imm))
+      | Add ->      if rs1 = "x0" then str_of_instr_w (LI(rd, imm))
+                                  else str_of_instr_w (ADDI(rd, rs1, imm))
       | Subtract -> str_of_instr_w (LI("t0", imm)) ^
                     str_of_instr_w (SUB(rd, rs1, "t0"))
       | Multiply -> str_of_instr_w (LI("t0", imm)) ^
@@ -83,7 +85,6 @@ let rec str_of_action (context : compile_context) = function
       match op with
       | Add ->      str_of_instr_w (ADD(rd, rs1, rs2))
       | Subtract -> str_of_instr_w (SUB(rd, rs1, rs2))
-                    
       | Multiply -> str_of_instr_w (MUL(rd, rs1, rs2))
       | Divide ->   str_of_instr_w (DIV(rd, rs1, rs2))
     end
@@ -91,11 +92,12 @@ let rec str_of_action (context : compile_context) = function
 | Return(rs) -> str_of_action context (Putarg rs) ^ 
                 str_of_instr_w (J (context.function_name ^ "_fin"))
 | Call(name) -> 
-    let save_callee = str_of_instr_w (SD ("ra", 0, "sp")) in
-    let call_str = str_of_instr_w (CALL(name)) in
-    let restore_callee = str_of_instr_w (LD ("ra", 0, "sp")) in
+    let save_callee =     str_of_instr_w (SD ("ra", 0, "sp")) in
+    let call_str =        str_of_instr_w (CALL(name)) in
+    let restore_callee =  str_of_instr_w (LD ("ra", 0, "sp")) in
     save_callee ^ call_str ^ restore_callee
-| Ecall -> "\tecall\n"
+| EndOfProgram -> str_of_instr_w (LI ("a7", 94)) ^
+                  str_of_instr_w ECALL
 | _ -> failwith "Error: Undefined action!";;
 
 let str_of_condition condition label =
@@ -128,12 +130,11 @@ let rec parse_program (context : compile_context) = function
       let fin_name = context.function_name ^ "_fin" in
       let then_label = str_of_instr_w (LABEL then_name) in
       let fin_label = str_of_instr_w (LABEL fin_name) in
-    (*let jump_fin = str_of_instr_w (J("then1")) in *)
       let cond = (c_rs1, c_sign, c_imm) in
       let cond_str = (str_of_condition cond then_name) in
       let thn_str = parse_program context thn in
       let els_str = parse_program context els in
-      cond_str ^ els_str (*^ jump_fin *) ^ then_label ^ thn_str ^ fin_label
+      cond_str ^ els_str ^ then_label ^ thn_str ^ fin_label
     | _ -> failwith "ERROR: Expected condition in if-clause, but actual is not."
     end
 | SingleNested(action) -> str_of_action context action;;
@@ -143,13 +144,10 @@ let start =
 
 Function("_start", "a0",
   Sequence(
-    LetI("a0", "x0", Add, 4),
+    LetI("a0", "x0", Add, 5),
     Sequence(
       Call "factorial",
-      Sequence(
-        LetI("a7", "x0", Add, 93),
-        SingleNested(Ecall)
-      ) 
+      SingleNested(EndOfProgram)
     )
   )
 )
