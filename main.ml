@@ -1,16 +1,14 @@
-type oper = Add | Subtract | Multiply | Divide
-type atomic = 
-| Const of int
-| Register of string
+open Printf
 
+type oper = Add | Subtract | Multiply | Divide
 type cmp_sign =
 | GREATER_EQUAL
 | LESS_EQUAL
 
-type action =
+(* Instructions of higher level IR *)
+type action = 
 | LetR of string * string * oper * string
 | LetI of string * string * oper * int
-
 | Putarg of string (* put register data to a0 *)
 | Condition of string * cmp_sign * int
 | Return of string
@@ -28,6 +26,7 @@ type compile_context = {
 }
 let start_context = {function_name = "_start"}
 
+(* Supported instructions of RISC-V assembler *)
 type instr = 
 | LABEL of string
 | MV of string * string
@@ -47,17 +46,17 @@ type instr =
 
 let str_of_instr = function
 | LABEL(name) -> name ^ ":"
-| MV(rd, rs) -> Printf.sprintf "mv %s, %s" rd rs
-| LI(rd, imm) -> Printf.sprintf "li %s, %d" rd imm
-| CALL(func) ->  Printf.sprintf "call %s" func
-| ADD(rd, rs1, rs2) -> Printf.sprintf "add %s, %s, %s" rd rs1 rs2
-| SUB(rd, rs1, rs2) -> Printf.sprintf "sub %s, %s, %s" rd rs1 rs2
-| MUL(rd, rs1, rs2) -> Printf.sprintf "mul %s, %s, %s" rd rs1 rs2
-| DIV(rd, rs1, rs2) -> Printf.sprintf "div %s, %s, %s" rd rs1 rs2
-| ADDI(rd, rs, imm) -> Printf.sprintf "addi %s, %s, %d" rd rs imm
-| SD(rs, shift, addr) -> Printf.sprintf "sd %s, %d(%s)" rs shift addr
-| LD(rd, shift, addr) -> Printf.sprintf "ld %s, %d(%s)" rd shift addr
-| BGE(rs1, rs2, label) -> Printf.sprintf "bge %s, %s, %s" rs1 rs2 label
+| MV(rd, rs) -> sprintf "mv %s, %s" rd rs
+| LI(rd, imm) -> sprintf "li %s, %d" rd imm
+| CALL(func) ->  sprintf "call %s" func
+| ADD(rd, rs1, rs2) -> sprintf "add %s, %s, %s" rd rs1 rs2
+| SUB(rd, rs1, rs2) -> sprintf "sub %s, %s, %s" rd rs1 rs2
+| MUL(rd, rs1, rs2) -> sprintf "mul %s, %s, %s" rd rs1 rs2
+| DIV(rd, rs1, rs2) -> sprintf "div %s, %s, %s" rd rs1 rs2
+| ADDI(rd, rs, imm) -> sprintf "addi %s, %s, %d" rd rs imm
+| SD(rs, shift, addr) -> sprintf "sd %s, %d(%s)" rs shift addr
+| LD(rd, shift, addr) -> sprintf "ld %s, %d(%s)" rd shift addr
+| BGE(rs1, rs2, label) -> sprintf "bge %s, %s, %s" rs1 rs2 label
 | J(label) -> "j " ^ label
 | RET -> "ret"
 | ECALL -> "ecall";;
@@ -138,52 +137,3 @@ let rec parse_program (context : compile_context) = function
     | _ -> failwith "ERROR: Expected condition in if-clause, but actual is not."
     end
 | SingleNested(action) -> str_of_action context action;;
-
-
-let start = 
-
-Function("_start", "a0",
-  Sequence(
-    LetI("a0", "x0", Add, 5),
-    Sequence(
-      Call "factorial",
-      SingleNested(EndOfProgram)
-    )
-  )
-)
-let program = 
-
-Function("factorial", "a0",
-  If(Condition("a0", LESS_EQUAL, 1),
-    Sequence(LetI("a0", "x0", Add, 1),
-             SingleNested(Return "a0")),
-    Sequence(LetI("a1", "a0", Add, -1),
-      Sequence(Putarg "a1",
-        Sequence(Call "factorial",
-          Sequence(LetI("a1", "a1", Add, 1),
-            Sequence(
-              LetR("a0", "a0", Multiply, "a1"),
-              SingleNested(Return "a0")
-            )
-          )
-        )
-      )
-    )
-  )
-);;
-
-print_string (parse_program start_context start ^ parse_program start_context program);;
-
-let a () =
-  print_string (str_of_instr_w (LABEL("fact")));
-  print_string (str_of_instr_w (MV("a0", "a1")));
-  print_string (str_of_instr_w (LI("a0", 5)));
-  print_string (str_of_instr_w (CALL("fact")));
-  print_string (str_of_instr_w (ADD("a0", "a1", "a2")));
-  print_string (str_of_instr_w (SUB("a0", "a1", "a2")));
-  print_string (str_of_instr_w (MUL("a0", "a1", "a2")));
-  print_string (str_of_instr_w (ADDI("a0", "a1", 5)));
-  print_string (str_of_instr_w (SD("ra", 8, "sp")));
-  print_string (str_of_instr_w (LD("ra", 8, "sp")));
-  print_string (str_of_instr_w RET);;
-(* let () = a(); *)
