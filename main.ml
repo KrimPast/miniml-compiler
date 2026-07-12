@@ -16,8 +16,9 @@ type action =
 | EndOfProgram
 
 type nested = 
-| If of action * nested * nested
-| Sequence of action * nested
+| If of action * nested * nested (* condition, if-body, else-body *)
+| While of action * nested * nested (* condition, cycle body, and next "nested" *)
+| Sequence of action * nested (* current "action" and next "action" *)
 | Function of string * string * nested (* function name, argument, function body *)
 | SingleNested of action
 
@@ -72,8 +73,7 @@ let rec str_of_action (context : compile_context) = function
       match op with
       | Add ->      if rs1 = "x0" then str_of_instr_w (LI(rd, imm))
                                   else str_of_instr_w (ADDI(rd, rs1, imm))
-      | Subtract -> str_of_instr_w (LI("t0", imm)) ^
-                    str_of_instr_w (SUB(rd, rs1, "t0"))
+      | Subtract -> str_of_instr_w (ADDI(rd, rs1, -imm))
       | Multiply -> str_of_instr_w (LI("t0", imm)) ^
                     str_of_instr_w (MUL(rd, rs1, "t0"))
       | Divide ->   str_of_instr_w (LI("t0", imm)) ^
@@ -82,14 +82,18 @@ let rec str_of_action (context : compile_context) = function
 | LetR(rd, rs1, op, rs2) ->
     begin
       match op with
-      | Add ->      str_of_instr_w (ADD(rd, rs1, rs2))
+      | Add ->      if rs1 = "x0" then str_of_instr_w (MV(rd, rs2))
+                    else if rs2 = "x0" then str_of_instr_w (MV(rd, rs1))
+                    else str_of_instr_w (ADD(rd, rs1, rs2))
       | Subtract -> str_of_instr_w (SUB(rd, rs1, rs2))
       | Multiply -> str_of_instr_w (MUL(rd, rs1, rs2))
       | Divide ->   str_of_instr_w (DIV(rd, rs1, rs2))
     end
 | Putarg(rs) -> str_of_instr_w (MV("a0", rs))
-| Return(rs) -> str_of_action context (Putarg rs) ^ 
-                str_of_instr_w (J (context.function_name ^ "_fin"))
+| Return(rs) -> str_of_action context (Putarg rs) ^
+                str_of_instr_w (ADDI("sp", "sp", 16)) ^
+                str_of_instr_w (RET)
+                (* str_of_instr_w (J (context.function_name ^ "_fin")) *)
 | Call(name) -> 
     let save_callee =     str_of_instr_w (SD ("ra", 0, "sp")) in
     let call_str =        str_of_instr_w (CALL(name)) in
@@ -114,10 +118,8 @@ let rec parse_program (context : compile_context) = function
     let new_context = {context with function_name=func_name} in
     let label = str_of_instr_w (LABEL func_name) in
     let st = str_of_instr_w (ADDI ("sp", "sp", -16)) in 
-    let ed = str_of_instr_w (ADDI ("sp", "sp", 16)) in 
-    let return = str_of_instr_w RET in
     let imm = parse_program new_context seq in
-    label ^ st ^ imm ^ ed ^ return
+    label ^ st ^ imm
 | Sequence(curr, next_seq) ->
   let next_seq = parse_program context next_seq in
     str_of_action context curr ^ next_seq
@@ -135,5 +137,21 @@ let rec parse_program (context : compile_context) = function
       let els_str = parse_program context els in
       cond_str ^ els_str ^ then_label ^ thn_str ^ fin_label
     | _ -> failwith "ERROR: Expected condition in if-clause, but actual is not."
+    end
+| While(condition, body, next) -> 
+    begin
+      match condition with
+      | Condition (c_rs1, c_sign, c_imm) ->
+          let while_name_start = context.function_name ^ "_while_start" in
+          let while_name_end = context.function_name ^ "_while_end" in
+          let while_start_label  = str_of_instr_w(LABEL while_name_start) in
+          let while_end_label = str_of_instr_w(LABEL while_name_end) in
+          let jump_start_str = str_of_instr_w(J while_name_start) in
+          let body_str = parse_program context body in
+          let next_str = parse_program context next in
+          let cond = (c_rs1, c_sign, c_imm) in
+          let cond_str = (str_of_condition cond while_name_end) in
+          while_start_label ^ cond_str ^ body_str ^ jump_start_str ^ while_end_label ^ next_str
+      | _ -> failwith "ERROR: Expected condition in while-clause, but actual is not."
     end
 | SingleNested(action) -> str_of_action context action;;
