@@ -17,7 +17,7 @@ If you want to execute this code, you need to have RISC-V architecture on your d
 - QEMU and its supporting for RISC-V
 
 For example, here are the required packages for Arch Linux:
-### Arch Linux:
+### Arch Linux
 ```sh
 sudo pacman -S riscv64-linux-gnu-gcc qemu-user qemu-system-riscv qemu-tools
 ```
@@ -28,4 +28,10 @@ sudo pacman -S riscv64-linux-gnu-gcc qemu-user qemu-system-riscv qemu-tools
 riscv64-linux-gnu-as main.S -o main.o &&
 riscv64-linux-gnu-ld main.o &&
 qemu-riscv64 -L /usr/riscv64-linux-gnu -cpu rv64 ./a.out
+```
+
+### Where is result
+You will see it if you enter this:
+```sh
+echo $?
 ```
