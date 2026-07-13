@@ -1,3 +1,6 @@
+(* SPDX-License-Identifier: LGPL-3.0-only *)
+(* Copyright Nikita Egorov and Maksim Butyugov *)
+
 open Printf
 
 type oper = Add | Subtract | Multiply | Divide
