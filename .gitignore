@@ -1,4 +1,8 @@
 *.S
 *.o
 *.out
-_build
+_build_build/
+*.o
+*.S
+factorial-riscv
+main-riscv
