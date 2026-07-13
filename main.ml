@@ -7,20 +7,17 @@ type cmp_sign =
 
 (* Instructions of higher level IR *)
 type action = 
-| LetR of string * string * oper * string
-| LetI of string * string * oper * int
-| Putarg of string (* put register data to a0 *)
-| Condition of string * cmp_sign * int
+| Sequence of action * action             (* current "action" and next "action" *)
+| LetR of string * string * oper * string (* rd = rs1 op rs2 *)
+| LetI of string * string * oper * int    (* rd = rs1 op imm *)
+| Putarg of string                        (* put register data to a0 *)
+| Condition of string * cmp_sign * int    (* rs sign imm, e.g. a0 >= 0 *)
 | Return of string
 | Call of string
 | EndOfProgram
-
-type nested = 
-| If of action * nested * nested (* condition, if-body, else-body *)
-| While of action * nested * nested (* condition, cycle body, and next "nested" *)
-| Sequence of action * nested (* current "action" and next "action" *)
-| Function of string * string * nested (* function name, argument, function body *)
-| SingleNested of action
+| If of action * action * action          (* condition, if-body, else-body *)
+| While of action * action                (* condition, cycle body *)
+| Function of string * string * action    (* function name, argument, function body *)
 
 type compile_context = {
   function_name : string;
@@ -67,7 +64,57 @@ let str_of_instr_w v =
   | MV(rd, rs) -> if rd <> rs then "\t" ^ str_of_instr v ^ "\n" else ""
   | _ -> "\t" ^ str_of_instr v ^ "\n";;
 
-let rec str_of_action (context : compile_context) = function
+let str_of_condition condition label =
+  match condition with
+  | (rs1, cmp_sign, imm) -> 
+      let temp_inst = LI("t0", imm) in
+      let next_inst = 
+      match cmp_sign with
+      | GREATER_EQUAL -> BGE(rs1, "t0", label)
+      | LESS_EQUAL -> BGE("t0", rs1, label) in
+      str_of_instr_w temp_inst ^ str_of_instr_w next_inst;;
+    
+let rec parse_program (context : compile_context) = function
+| Function(func_name, arg, seq) -> 
+    let new_context = {context with function_name=func_name} in
+    let label = str_of_instr_w (LABEL func_name) in
+    let st = str_of_instr_w (ADDI ("sp", "sp", -16)) in 
+    let imm = parse_program new_context seq in
+    label ^ st ^ imm
+| Sequence(curr, next) ->
+    let curr_str = parse_program context curr in
+    let next_str = parse_program context next in
+      curr_str ^ next_str
+| If (condition, thn, els) ->
+    begin  
+    match condition with
+    Condition (c_rs1, c_sign, c_imm) ->
+      let then_name = context.function_name ^ "_then" in
+      let fin_name = context.function_name ^ "_fin" in
+      let then_label = str_of_instr_w (LABEL then_name) in
+      let fin_label = str_of_instr_w (LABEL fin_name) in
+      let cond = (c_rs1, c_sign, c_imm) in
+      let cond_str = (str_of_condition cond then_name) in
+      let thn_str = parse_program context thn in
+      let els_str = parse_program context els in
+      cond_str ^ els_str ^ then_label ^ thn_str ^ fin_label
+    | _ -> failwith "ERROR: Expected condition in if-clause, but actual is not."
+    end
+| While(condition, body) -> 
+    begin
+      match condition with
+      | Condition (c_rs1, c_sign, c_imm) ->
+          let while_name_start = context.function_name ^ "_while_start" in
+          let while_name_end = context.function_name ^ "_while_end" in
+          let while_start_label  = str_of_instr_w(LABEL while_name_start) in
+          let while_end_label = str_of_instr_w(LABEL while_name_end) in
+          let jump_start_str = str_of_instr_w(J while_name_start) in
+          let body_str = parse_program context body in
+          let cond = (c_rs1, c_sign, c_imm) in
+          let cond_str = (str_of_condition cond while_name_end) in
+          while_start_label ^ cond_str ^ body_str ^ jump_start_str ^ while_end_label
+      | _ -> failwith "ERROR: Expected condition in while-clause, but actual is not."
+    end
 | LetI(rd, rs1, op, imm) ->
     begin 
       match op with
@@ -90,7 +137,7 @@ let rec str_of_action (context : compile_context) = function
       | Divide ->   str_of_instr_w (DIV(rd, rs1, rs2))
     end
 | Putarg(rs) -> str_of_instr_w (MV("a0", rs))
-| Return(rs) -> str_of_action context (Putarg rs) ^
+| Return(rs) -> parse_program context (Putarg rs) ^
                 str_of_instr_w (ADDI("sp", "sp", 16)) ^
                 str_of_instr_w (RET)
                 (* str_of_instr_w (J (context.function_name ^ "_fin")) *)
@@ -102,56 +149,3 @@ let rec str_of_action (context : compile_context) = function
 | EndOfProgram -> str_of_instr_w (LI ("a7", 94)) ^
                   str_of_instr_w ECALL
 | _ -> failwith "Error: Undefined action!";;
-
-let str_of_condition condition label =
-  match condition with
-  | (rs1, cmp_sign, imm) -> 
-      let temp_inst = LI("t0", imm) in
-      let next_inst = 
-      match cmp_sign with
-      | GREATER_EQUAL -> BGE(rs1, "t0", label)
-      | LESS_EQUAL -> BGE("t0", rs1, label) in
-      str_of_instr_w temp_inst ^ str_of_instr_w next_inst;;
-    
-let rec parse_program (context : compile_context) = function
-| Function(func_name, arg, seq) -> 
-    let new_context = {context with function_name=func_name} in
-    let label = str_of_instr_w (LABEL func_name) in
-    let st = str_of_instr_w (ADDI ("sp", "sp", -16)) in 
-    let imm = parse_program new_context seq in
-    label ^ st ^ imm
-| Sequence(curr, next_seq) ->
-  let next_seq = parse_program context next_seq in
-    str_of_action context curr ^ next_seq
-| If (condition, thn, els) ->
-    begin  
-    match condition with
-    Condition (c_rs1, c_sign, c_imm) ->
-      let then_name = context.function_name ^ "_then" in
-      let fin_name = context.function_name ^ "_fin" in
-      let then_label = str_of_instr_w (LABEL then_name) in
-      let fin_label = str_of_instr_w (LABEL fin_name) in
-      let cond = (c_rs1, c_sign, c_imm) in
-      let cond_str = (str_of_condition cond then_name) in
-      let thn_str = parse_program context thn in
-      let els_str = parse_program context els in
-      cond_str ^ els_str ^ then_label ^ thn_str ^ fin_label
-    | _ -> failwith "ERROR: Expected condition in if-clause, but actual is not."
-    end
-| While(condition, body, next) -> 
-    begin
-      match condition with
-      | Condition (c_rs1, c_sign, c_imm) ->
-          let while_name_start = context.function_name ^ "_while_start" in
-          let while_name_end = context.function_name ^ "_while_end" in
-          let while_start_label  = str_of_instr_w(LABEL while_name_start) in
-          let while_end_label = str_of_instr_w(LABEL while_name_end) in
-          let jump_start_str = str_of_instr_w(J while_name_start) in
-          let body_str = parse_program context body in
-          let next_str = parse_program context next in
-          let cond = (c_rs1, c_sign, c_imm) in
-          let cond_str = (str_of_condition cond while_name_end) in
-          while_start_label ^ cond_str ^ body_str ^ jump_start_str ^ while_end_label ^ next_str
-      | _ -> failwith "ERROR: Expected condition in while-clause, but actual is not."
-    end
-| SingleNested(action) -> str_of_action context action;;
