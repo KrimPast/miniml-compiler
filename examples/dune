@@ -1,9 +1,0 @@
-(executable 
- (name factorial)
- (libraries main)
-)
-
-(executable 
- (name fibonacci)
- (libraries main)
-)

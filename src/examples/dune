@@ -1,0 +1,11 @@
+(executable 
+ (name factorial)
+ (modules factorial)
+ (libraries libML)
+)
+
+(executable 
+ (name fibonacci)
+ (modules fibonacci)
+ (libraries libML)
+)

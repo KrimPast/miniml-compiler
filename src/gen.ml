@@ -1,71 +1,13 @@
 (* SPDX-License-Identifier: LGPL-3.0-only *)
 (* Copyright Nikita Egorov and Maksim Butyugov *)
 
-open Printf
-
-type oper = Add | Subtract | Multiply | Divide
-type cmp_sign =
-| GREATER_EQUAL
-| LESS_EQUAL
-
-(* Instructions of higher level IR *)
-type action = 
-| Sequence of action * action             (* current "action" and next "action" *)
-| LetR of string * string * oper * string (* rd = rs1 op rs2 *)
-| LetI of string * string * oper * int    (* rd = rs1 op imm *)
-| Putarg of string                        (* put register data to a0 *)
-| Condition of string * cmp_sign * int    (* rs sign imm, e.g. a0 >= 0 *)
-| Return of string
-| Call of string
-| EndOfProgram
-| If of action * action * action          (* condition, if-body, else-body *)
-| While of action * action                (* condition, cycle body *)
-| Function of string * string * action    (* function name, argument, function body *)
+open Asm
+open Ir
 
 type compile_context = {
   function_name : string;
 }
 let start_context = {function_name = "_start"}
-
-(* Supported instructions of RISC-V assembler *)
-type instr = 
-| LABEL of string
-| MV of string * string
-| LI of string * int
-| CALL of string
-| ADD of string * string * string
-| SUB of string * string * string
-| MUL of string * string * string
-| DIV of string * string * string
-| ADDI of string * string * int
-| SD of string * int * string
-| LD of string * int * string
-| BGE of string * string * string (* branch if >= *)
-| J of string
-| RET
-| ECALL
-
-let str_of_instr = function
-| LABEL(name) -> name ^ ":"
-| MV(rd, rs) -> sprintf "mv %s, %s" rd rs
-| LI(rd, imm) -> sprintf "li %s, %d" rd imm
-| CALL(func) ->  sprintf "call %s" func
-| ADD(rd, rs1, rs2) -> sprintf "add %s, %s, %s" rd rs1 rs2
-| SUB(rd, rs1, rs2) -> sprintf "sub %s, %s, %s" rd rs1 rs2
-| MUL(rd, rs1, rs2) -> sprintf "mul %s, %s, %s" rd rs1 rs2
-| DIV(rd, rs1, rs2) -> sprintf "div %s, %s, %s" rd rs1 rs2
-| ADDI(rd, rs, imm) -> sprintf "addi %s, %s, %d" rd rs imm
-| SD(rs, shift, addr) -> sprintf "sd %s, %d(%s)" rs shift addr
-| LD(rd, shift, addr) -> sprintf "ld %s, %d(%s)" rd shift addr
-| BGE(rs1, rs2, label) -> sprintf "bge %s, %s, %s" rs1 rs2 label
-| J(label) -> "j " ^ label
-| RET -> "ret"
-| ECALL -> "ecall";;
-let str_of_instr_w v = 
-  match v with
-  | LABEL(_) -> str_of_instr v ^ "\n"
-  | MV(rd, rs) -> if rd <> rs then "\t" ^ str_of_instr v ^ "\n" else ""
-  | _ -> "\t" ^ str_of_instr v ^ "\n";;
 
 let str_of_condition condition label =
   match condition with

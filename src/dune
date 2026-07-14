@@ -1,1 +1,4 @@
-(library (name main))
+(library 
+ (name libML)
+ (modules asm gen ir)
+)
