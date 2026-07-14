@@ -1,0 +1,9 @@
+(library 
+ (name libML)
+ (modules asm gen ir)
+)
+(executable
+ (name parser)
+ (modules parser)
+)
+

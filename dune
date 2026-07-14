@@ -1,7 +1,0 @@
-(library
- (name main)
- (modules main))
-
-(executable
- (name parser)
- (modules parser))

@@ -1,7 +1,8 @@
 (* SPDX-License-Identifier: LGPL-3.0-only *)
 (* Copyright Nikita Egorov and Maksim Butyugov *)
 
-open Main
+open LibML.Ir
+open LibML.Gen
 
 let start = 
 Function("_start", "a0",
