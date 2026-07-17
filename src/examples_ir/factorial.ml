@@ -1,7 +1,7 @@
 (* SPDX-License-Identifier: LGPL-3.0-only *)
 (* Copyright Nikita Egorov and Maksim Butyugov *)
 
-open LibML.Ir
+(* open LibML.Ir
 open LibML.Gen
 
 let start = 
@@ -36,4 +36,4 @@ Function("factorial", "a0",
   )
 );;
 
-print_string (parse_program start_context start ^ parse_program start_context program);;
+print_string (parse_program start_context start ^ parse_program start_context program);; *)

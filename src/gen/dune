@@ -1,0 +1,5 @@
+(library
+ (name gn)
+ (modules exprs gen)
+ (libraries lex asm)
+)

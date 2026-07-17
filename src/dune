@@ -1,9 +1,14 @@
 (library 
- (name libML)
- (modules asm gen ir)
+ (name asm)
+ (modules asm)
 )
-(executable
+(library
  (name parser)
  (modules parser)
+ (libraries lex gn tokens)
 )
-
+(executable
+ (name main)
+ (modules main)
+ (libraries tokens lex parser gn)
+)
