@@ -6,11 +6,11 @@ dune build --profile release
 ## Usage
 Go to examples folder:
 ```sh
-cd ./_build/default/examples/
+cd ./_build/default/src/
 ```
-In this folder you will see `factorial.exe` and `fibonacci.exe`.
+In this folder you will see `main.exe`.
 
-After executing the programs, the RISC-V assembly code will be output to the console, which is what the compiler produces.
+After executing this program and putting as first argument miniML program, the RISC-V assembly code will be output to the console, which is what the compiler produces.
 
 If you want to execute this code, you need to have RISC-V architecture on your device or download special utilities:
 - GCC for RISC-V
