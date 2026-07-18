@@ -24,7 +24,7 @@ sudo pacman -S riscv64-linux-gnu-gcc qemu-user qemu-system-riscv qemu-tools
 
 ### Building source code in assembler and executing binaries
 ```sh
-./fibonacci.exe > main.S &&
+./main.exe > main.S &&
 riscv64-linux-gnu-as main.S -o main.o &&
 riscv64-linux-gnu-ld main.o &&
 qemu-riscv64 -L /usr/riscv64-linux-gnu -cpu rv64 ./a.out
