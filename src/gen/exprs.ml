@@ -10,6 +10,7 @@ type expr =
 | EIf of expr * expr * expr
 | ECond of expr * token * expr
 | ESeq of expr * expr
+| ESeqLocal of expr * expr
 | EFunc of string * expr
 | ELet of string * expr
 | ECall of string * expr (* func name and argument *)

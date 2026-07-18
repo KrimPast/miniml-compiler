@@ -16,7 +16,12 @@ type instr =
 | ADDI of string * string * int
 | SD of string * int * string
 | LD of string * int * string
-| BGE of string * string * string (* branch if >= *)
+| BGE of string * string * string (* >= *)
+| BGT of string * string * string (* > *)
+| BLT of string * string * string (* < *)
+| BLE of string * string * string (* <= *)
+| BEQ of string * string * string (* = *)
+| BNE of string * string * string (* <> *)
 | J of string
 | RET
 | ECALL
@@ -34,6 +39,11 @@ let str_of_instr = function
 | SD(rs, shift, addr) -> sprintf "sd %s, %d(%s)" rs shift addr
 | LD(rd, shift, addr) -> sprintf "ld %s, %d(%s)" rd shift addr
 | BGE(rs1, rs2, label) -> sprintf "bge %s, %s, %s" rs1 rs2 label
+| BGT(rs1, rs2, label) -> sprintf "bgt %s, %s, %s" rs1 rs2 label
+| BLT(rs1, rs2, label) -> sprintf "blt %s, %s, %s" rs1 rs2 label
+| BLE(rs1, rs2, label) -> sprintf "ble %s, %s, %s" rs1 rs2 label
+| BEQ(rs1, rs2, label) -> sprintf "beq %s, %s, %s" rs1 rs2 label
+| BNE(rs1, rs2, label) -> sprintf "bne %s, %s, %s" rs1 rs2 label
 | J(label) -> "j " ^ label
 | RET -> "ret"
 | ECALL -> "ecall";;

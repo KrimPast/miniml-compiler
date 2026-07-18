@@ -8,9 +8,13 @@ open Printf
 type context = {
   mutable function_name : string;
   mutable binop_returned : string;
+  to_return_stack : string Stack.t;
   mutable has_callings : bool;
 }
-let ct = {function_name="_main"; binop_returned = "err"; has_callings = false}
+let ct = {
+  function_name = "_main"; to_return_stack = Stack.create(); 
+  binop_returned = "err"; has_callings = false
+}
 let arg_regs = ref [ "a0"; "a1"; "a2"; "a3"; "a4"; "a5"; "a6"; "a7" ]
 let temp_regs = ref [ "t0"; "t1"; "t2"; "t3"; "t4"; "t5"; "t6"; "t7" ]
 let reg_table = Hashtbl.create 16
@@ -37,13 +41,17 @@ let get_free_register regs =
     (* print_endline @@ "Allocated reg: " ^ reg; *)
     reg;
   end;;
+let is_has_register_to_return () =
+  not (Stack.is_empty ct.to_return_stack) 
 let rec generate_code = function
 | EFunc(name, body) ->
     ct.function_name <- name;
+    Stack.push "a0" ct.to_return_stack;
     let body = generate_code body in
-    
+    let stack_out = Stack.pop ct.to_return_stack in
+    if stack_out <> "a0" then failwith "Expected register a0 as result of function.";
+
     (* let res = str_of_instr_w (LABEL(name)) ^ generate_code body ^ str_of_instr_w RET in *)
-    (* print_string @@ string_of_bool ct.has_callings; *)
 
     let save_ra = str_of_instr_w(SD("ra", 0, "sp")) in
     (* If outer callings is exist in this function, then save our arguments *)
@@ -69,20 +77,22 @@ let rec generate_code = function
       let then_label = str_of_instr_w (LABEL then_name) in
       let fin_label = str_of_instr_w (LABEL fin_name) in
       let jump_final = str_of_instr_w (J fin_name) in
-      let cond_str = (generate_code cond) in
+      let condition = (generate_code cond) in
       
-      let then_code = generate_code thn in
-      let then_move_reg = 
-        (str_of_instr_w @@ MV("a0", ct.binop_returned)) in (* КОСТЫЛЬ, чтобы переложить результат if-а факториала в a0*)
-      (* print_endline @@ "Then result: " ^ then_res; *)
-      
-      let else_code = generate_code els in
-      let else_move_reg = 
-        (str_of_instr_w @@ MV("a0", ct.binop_returned)) in
-      (* let then_res = ct.binop_returned in *)
-      (* print_endline @@ "Else result: " ^ then_res; *)
+      if is_has_register_to_return() then begin
+        let to_return = Stack.top ct.to_return_stack in
+        let then_code = generate_code thn in
+        let then_move_reg = str_of_instr_w (MV(to_return, ct.binop_returned)) in
+        
+        let else_code = generate_code els in
+        let else_move_reg = str_of_instr_w (MV(to_return, ct.binop_returned)) in
 
-      cond_str ^ else_code ^ else_move_reg ^ jump_final ^ then_label ^ then_code ^ then_move_reg ^ fin_label
+        condition ^ else_code ^ else_move_reg ^ jump_final ^ then_label ^ then_code ^ then_move_reg ^ fin_label
+      end else begin
+        let then_code = generate_code thn in        
+        let else_code = generate_code els in
+        condition ^ else_code ^ jump_final ^ then_label ^ then_code ^ fin_label
+      end
     end
 | EBinop (op, left, right) ->
     let left_code = generate_code left in
@@ -101,6 +111,7 @@ let rec generate_code = function
     end in
     ct.binop_returned <- rd;
     left_code ^ right_code ^ inst;
+| ESeqLocal(curr, next) -> generate_code curr ^ generate_code next
 | ENum(num) -> 
     let rd = get_free_register temp_regs in
     ct.binop_returned <- rd;
@@ -117,18 +128,20 @@ let rec generate_code = function
     ct.binop_returned <- rd;
     "";
 | ECond(left, op, right) -> 
-    begin
-      match op with 
-      | TLq -> 
-          let left_code = generate_code left in
-          let left_res = ct.binop_returned in
-          let right_code = generate_code right in
-          let right_res = ct.binop_returned in
-          let label_name = ct.function_name ^ "_then" in
-          left_code ^ 
-          right_code ^
-          str_of_instr_w(BGE(right_res, left_res, label_name))
-      | _ -> "Not implemented(ECond)"
+    let left_code = generate_code left in
+    let left_res = ct.binop_returned in
+    let right_code = generate_code right in
+    let right_res = ct.binop_returned in
+    let label_name = ct.function_name ^ "_then" in
+    left_code ^ right_code ^
+    begin match op with 
+    | TGe -> str_of_instr_w (BGE(left_res, right_res, label_name))
+    | TGt -> str_of_instr_w (BGT(left_res, right_res, label_name))
+    | TLt -> str_of_instr_w (BLT(left_res, right_res, label_name))
+    | TLe -> str_of_instr_w (BLE(left_res, right_res, label_name))
+    | TEq -> str_of_instr_w (BEQ(left_res, right_res, label_name))
+    | TNe -> str_of_instr_w (BNE(left_res, right_res, label_name))
+    | _ -> failwith "Expected one of '<=', '<', '>', '>=' in condition."
     end
 | ELet(name, expr) -> 
     let code = generate_code expr in
@@ -166,8 +179,3 @@ let rec generate_code = function
     move_res_to_tempr ^
     load_ra ^ !loaded_regs
 | _ -> failwith "Not implemented";;
-
-
-(* print_endline input; *)
-(* generate_code (e ()) |> *)
-(* print_string; *)

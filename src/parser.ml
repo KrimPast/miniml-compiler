@@ -10,7 +10,9 @@ let parse tokens =
 begin
   let tok = ref 0 in
 
-  let next_token () =
+  let curr_token () =
+    tokens.(!tok) in
+  let to_next_token () =
     tok := !tok + 1 in
   
   (* let print_token t =
@@ -19,31 +21,31 @@ begin
     print_string; *)
 
   let eat (tk : token) = 
-    let real_token = tokens.(!tok) in
-    next_token ();
+    let real_token = curr_token() in
+    to_next_token ();
     if tk <> real_token then
         print_endline (sprintf "Expected <%s>, but got <%s>." (string_of_token tk) (string_of_token real_token)) in
 
   let rec e () =
-    match tokens.(!tok) with
+    match curr_token() with
     | TLet ->
         eat(TLet);
         
         let is_func = ref false in
         (* скипаем keyword "rec" *)
-        begin match tokens.(!tok) with TRec -> is_func := true; next_token() |  _ -> () end;
+        begin match curr_token() with TRec -> is_func := true; to_next_token() |  _ -> () end;
 
-        let name = match tokens.(!tok) with TID(x) -> x | _ -> failwith "" in
-        next_token ();
+        let name = match curr_token() with TID(x) -> x | _ -> failwith "" in
+        to_next_token ();
 
-        (* print_endline @@ string_of_token tokens.(!tok); *)
+        (* print_endline @@ string_of_token curr_token(); *)
         while begin (* скипаем аргументы *)
-            match tokens.(!tok) with
+            match curr_token() with
             | TID(_) -> true
             | _ -> false
           end; do
           is_func := true;
-          next_token() 
+          to_next_token() 
         done;
 
         eat(TEq);
@@ -52,23 +54,28 @@ begin
         if !is_func = true then
           EFunc(name, body)
         else
-          ELet(name, body)
-    
+          if curr_token() = TContinueLocal then begin
+            eat(TContinueLocal);
+            ESeqLocal(ELet(name, body), e())
+          end else
+            ELet(name, body)
+
+        
     | TIf ->
         eat(TIf);
         let left = e() in
         
-        let sign = tokens.(!tok) in
-        next_token();
+        let sign = curr_token() in
+        to_next_token();
 
         let right = e() in
         eat(TThen);
         let thn = e () in
 
         begin
-        match tokens.(!tok) with
+        match curr_token() with
           | TElse ->
-            next_token();
+            to_next_token();
             let els = e() in
             EIf(ECond(left, sign, right), thn, els)
           | _ -> 
@@ -79,7 +86,7 @@ begin
         e' left
     | other -> failwith @@ sprintf "Undefined token '%s'" (string_of_token other)
   and e' left =
-    match tokens.(!tok) with
+    match curr_token() with
     | TPlus -> 
         eat(TPlus); 
         let right = t () in
@@ -93,13 +100,13 @@ begin
     | TEnd | TRParen | TEq  -> left
     | _ -> left
   and t () =
-    match tokens.(!tok) with
+    match curr_token() with
     | TID(_) | TNum(_) | TLParen -> 
         let left = f () in 
         t' left
     | _ -> failwith "t"
   and t' left =
-    match tokens.(!tok) with
+    match curr_token() with
     | TPlus | TMinus -> left
     | TMul -> 
         eat(TMul);
@@ -114,17 +121,13 @@ begin
     | TEnd | TRParen | TEq -> left
     | _ -> left
   and f () =
-    match tokens.(!tok) with
+    match curr_token() with
     | TID(x) -> 
         if !tok + 1 < Array.length tokens then begin
-            (* print_string "Next token: ";  *)
-            (* print_token tokens.(!tok + 1); *)
-            (* print_endline ""; *)
             match tokens.(!tok + 1) with
             | TNum(_) | TID(_) | TLParen -> 
-                next_token();
+                to_next_token();
                 let y = e() in
-                (* print_endline "Съеден!"; *)
                 ECall(x, y)
             | _ -> eat(TID(x)); EVar(x)
         end

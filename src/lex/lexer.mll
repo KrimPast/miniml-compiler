@@ -21,18 +21,27 @@ rule token = parse
   | "then"      { TThen }
   | "else"      { TElse }
   | "rec"       { TRec }
+  | "in"        { TContinueLocal }
   | id as text  { 
                   (* printf "var: %s\n" text; *)
                   TID(text)
                 }
-  | "<="        { TLq }
+  | "<="        { TLe }
+  | "<"         { TLt }
+  | ">"         { TGt }
+  | ">="        { TGe }
+
   | '='         { TEq }
+  | "<>"        { TNe }
   | '+'         { TPlus }
   | '-'         { TMinus }
   | '*'         { TMul }
   | '/'         { TDiv }
   | '('         { TLParen }
   | ')'         { TRParen }
+  | ";;"        { TSeqEnd }
+  | ";"         { TSeq }
+
   | eof         { TEnd }
   | _           {
                   let word = (Lexing.lexeme lexbuf) in
