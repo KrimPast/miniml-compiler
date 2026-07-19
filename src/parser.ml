@@ -12,6 +12,7 @@ let parse tokens =
     let tok = ref 0 in
 
     let curr_token () = tokens.(!tok) in
+    let next_token () = tokens.(!tok + 1) in
     let to_next_token () = tok := !tok + 1 in
 
     (* let print_token t =
@@ -22,9 +23,10 @@ let parse tokens =
       let real_token = curr_token () in
       to_next_token ();
       if tk <> real_token then
-        print_endline
-          (sprintf "Expected <%s>, but got <%s>." (string_of_token tk)
-             (string_of_token real_token))
+        raise
+          (ParseError
+             (sprintf "Expected <%s>, but got <%s>." (string_of_token tk)
+                (string_of_token real_token)))
     in
 
     let rec e () =
@@ -76,7 +78,12 @@ let parse tokens =
                           "Expected argument after function name, got '%s'"
                           (string_of_token other)))
             in
-            EFunc (name, first_arg_str, body)
+            let func = EFunc (name, first_arg_str, body) in
+            if curr_token () <> TEnd then begin
+              if curr_token () = TSeqEnd then eat TSeqEnd;
+              ESeq (func, e ())
+            end
+            else func
           else if curr_token () = TContinueLocal then begin
             eat TContinueLocal;
             ESeqLocal (ELet (name, body), e ())
@@ -103,6 +110,7 @@ let parse tokens =
       | TID _ | TNum _ | TLParen ->
           let left = t () in
           e' left
+      | TEnd -> ENothing
       | other ->
           raise
             (ParseError
@@ -149,7 +157,7 @@ let parse tokens =
       match curr_token () with
       | TID x ->
           if !tok + 1 < Array.length tokens then
-            begin match tokens.(!tok + 1) with
+            begin match next_token () with
             | TNum _ | TID _ | TLParen ->
                 to_next_token ();
                 let y = e () in

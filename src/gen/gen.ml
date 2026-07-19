@@ -12,19 +12,29 @@ type context = {
   to_return_stack : string Stack.t;
   mutable has_callings : bool;
   mutable stack_size : int;
+  mutable amount_of_if : int;
 }
 
 let ct =
   {
-    function_name = "_main";
+    function_name = "_start";
     to_return_stack = Stack.create ();
     has_callings = false;
     stack_size = 16;
+    amount_of_if = 0;
   }
 
 let arg_regs = ref [ "a0"; "a1"; "a2"; "a3"; "a4"; "a5"; "a6"; "a7" ]
 let temp_regs = ref [ "t0"; "t1"; "t2"; "t3"; "t4"; "t5"; "t6"; "t7" ]
 let reg_table = Hashtbl.create 16
+
+(* Useful ideas:
+General: 
+- Scope (it may be function, begin ... end and etc.)
+
+Optimization:
+- Store register value (to avoid repeated assignment the same value) 
+*)
 
 let print_table () =
   Hashtbl.iter (fun key value -> Printf.printf "%s -> %s\n" key value) reg_table
@@ -119,8 +129,13 @@ let rec generate_code = function
       end
       else str_of_instr_w (LABEL name) ^ body ^ str_of_instr_w RET
   | EIf (cond, thn, els) -> begin
-      let then_name = ct.function_name ^ "_then" in
-      let fin_name = ct.function_name ^ "_fin" in
+      ct.amount_of_if <- ct.amount_of_if + 1;
+      let then_name =
+        ct.function_name ^ "_then_" ^ string_of_int ct.amount_of_if
+      in
+      let fin_name =
+        ct.function_name ^ "_fin_" ^ string_of_int ct.amount_of_if
+      in
       let then_label = str_of_instr_w (LABEL then_name) in
       let fin_label = str_of_instr_w (LABEL fin_name) in
       let jump_final = str_of_instr_w (J fin_name) in
@@ -153,6 +168,10 @@ let rec generate_code = function
         end
       in
       left_code ^ right_code ^ inst
+  | ESeq (curr, next) ->
+      let curr_code = generate_code curr in
+      let next_code = generate_code next in
+      curr_code ^ next_code
   | ESeqLocal (curr, next) ->
       let curr_code = generate_code curr in
       let next_code = generate_code next in
@@ -170,6 +189,9 @@ let rec generate_code = function
       in
       str_of_instr_w (MV (rd, rs))
   | ECond (left, op, right) ->
+      let label_name =
+        ct.function_name ^ "_then_" ^ string_of_int ct.amount_of_if
+      in
       let left_res = alloc_and_push_reg () in
       let left_code = generate_code left in
       pop_and_check_reg left_res;
@@ -181,7 +203,6 @@ let rec generate_code = function
       free_register left_res;
       free_register right_res;
 
-      let label_name = ct.function_name ^ "_then" in
       left_code ^ right_code
       ^ begin match op with
       | TGe -> str_of_instr_w (BGE (left_res, right_res, label_name))
@@ -241,4 +262,5 @@ let rec generate_code = function
       code ^ save_ra ^ !saved_regs
       ^ str_of_instr_w (MV ("a0", rs))
       ^ str_of_instr_w (CALL name) ^ move_res ^ load_ra ^ !loaded_regs
-  | _ -> raise @@ GenError "generate_code: Not implemented"
+  | ENothing -> ""
+(* | _ -> raise @@ GenError "generate_code: Not implemented" *)
