@@ -55,7 +55,11 @@ let compile_program file =
   let tokens = lex_ocamllex source in
   let exp = Parser.parse tokens in
   let code = generate_code exp in
-  {source; tokens; exp; code}
+
+  if List.length !temp_regs <> 8 then
+    print_endline (Printf.sprintf "warning: Not all regs were freed!(%d/%d)" (List.length !temp_regs) 8);
+  
+    {source; tokens; exp; code}
 
 let () =
   let amount_args = Array.length Sys.argv in

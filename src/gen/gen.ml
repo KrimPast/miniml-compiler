@@ -159,6 +159,9 @@ let rec generate_code = function
     let right_code = generate_code right in
     pop_and_check_reg right_res;
 
+    free_register left_res;
+    free_register right_res;
+
     let label_name = ct.function_name ^ "_then" in
     left_code ^ right_code ^
     begin match op with 

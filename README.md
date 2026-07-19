@@ -9,7 +9,7 @@
 dune build --profile release
 ```
 ## Usage
-Go to examples folder:
+Go to build folder:
 ```sh
 cd ./_build/default/src/
 ```
