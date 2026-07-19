@@ -1,0 +1,39 @@
+#!/bin/sh
+
+fail="\e[31mFAIL\e[0m"
+success="\e[32mSUCCESS\e[0m"
+
+echo "Running integrity tests"
+
+dune runtest --profile release
+testsStatus=$?
+
+if [[ $testsStatus -ne 0 ]]; then
+     echo -e "Integrity tests: $fail"
+     exit 1
+else
+     echo -e "Integrity tests: $success"
+fi
+
+echo "Running ocamlformat check"
+opam exec -- dune build @fmt
+formatStatus=$?
+
+if [[ $formatStatus -ne 0 ]]; then
+     echo -e "Is code formatted?: $fail"
+     exit 1
+else
+     echo -e "Is code formatted?: $success"
+fi
+
+echo "Running git unstaged check"
+git diff --quiet
+unstagedStatus=$?
+
+if [[ $unstagedStatus -ne 0 ]]; then
+     echo -e "Is unstaged empty?: $fail"
+     exit 1
+else
+     echo -e "Is unstaged empty?: $success"
+     exit 0
+fi
