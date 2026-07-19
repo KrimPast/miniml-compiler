@@ -38,7 +38,7 @@ begin
         let name = match curr_token() with TID(x) -> x | _ -> failwith "" in
         to_next_token ();
 
-        (* print_endline @@ string_of_token curr_token(); *)
+        let first_arg = curr_token() in
         while begin (* скипаем аргументы *)
             match curr_token() with
             | TID(_) -> true
@@ -52,7 +52,8 @@ begin
         let body = e() in
         
         if !is_func = true then
-          EFunc(name, body)
+          let first_arg_str = match first_arg with TID(x) -> x | _ -> failwith "Expected argument after function name" in
+          EFunc(name, first_arg_str, body)
         else
           if curr_token() = TContinueLocal then begin
             eat(TContinueLocal);
