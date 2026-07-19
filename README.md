@@ -1,4 +1,9 @@
-# Hardcoded factorial compiler
+# Simple MiniML compiler
+## Implemented
+- Compilation of recursive `factorial` and recursive `fibonacci` functions.
+- Support of local variables.
+- Support of complex arithmetic equations.
+- `if`-`then`-`else` clause.
 ## Building
 ```sh
 dune build --profile release
@@ -22,9 +27,22 @@ For example, here are the required packages for Arch Linux:
 sudo pacman -S riscv64-linux-gnu-gcc qemu-user qemu-system-riscv qemu-tools
 ```
 
-### Building source code in assembler and executing binaries
+## Building source code in assembler and executing binaries
+You can find examples of miniML code in `./examples/` directory.
 ```sh
-./main.exe > main.S &&
+./main.exe infile.mml > main.S
+```
+Don't forget put `_main` body to use your function.
+Example for `factorial`:
+```S
+_main:
+    li a0, 5
+    call fac
+    li a7, 94
+    ecall
+```
+And after:
+```sh
 riscv64-linux-gnu-as main.S -o main.o &&
 riscv64-linux-gnu-ld main.o &&
 qemu-riscv64 -L /usr/riscv64-linux-gnu -cpu rv64 ./a.out

@@ -1,9 +1,0 @@
-(executable 
- (name factorial)
- (modules factorial)
-)
-
-(executable 
- (name fibonacci)
- (modules fibonacci)
-)
