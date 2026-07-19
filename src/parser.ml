@@ -3,9 +3,9 @@
 
 open Tokens
 open Printf
-open Gn.Gen
 open Gn.Exprs
 
+exception ParseError of string
 let parse tokens = 
 begin
   let tok = ref 0 in
@@ -35,7 +35,10 @@ begin
         (* скипаем keyword "rec" *)
         begin match curr_token() with TRec -> is_func := true; to_next_token() |  _ -> () end;
 
-        let name = match curr_token() with TID(x) -> x | _ -> failwith "" in
+        let name = match curr_token() with 
+        | TID(x) -> x 
+        | other -> raise @@ ParseError (sprintf "Expected let name, got '%s'" (string_of_token other)) 
+        in
         to_next_token ();
 
         let first_arg = curr_token() in
@@ -52,7 +55,9 @@ begin
         let body = e() in
         
         if !is_func = true then
-          let first_arg_str = match first_arg with TID(x) -> x | _ -> failwith "Expected argument after function name" in
+          let first_arg_str = match first_arg with 
+          | TID(x) -> x 
+          | other -> raise @@ ParseError (sprintf "Expected argument after function name, got '%s'" (string_of_token other)) in
           EFunc(name, first_arg_str, body)
         else
           if curr_token() = TContinueLocal then begin
@@ -85,7 +90,7 @@ begin
     | TID(_) | TNum(_) | TLParen -> 
         let left = t () in
         e' left
-    | other -> failwith @@ sprintf "Undefined token '%s'" (string_of_token other)
+    | other -> raise @@ ParseError (sprintf "Unexpected token '%s'" (string_of_token other))
   and e' left =
     match curr_token() with
     | TPlus -> 
@@ -105,7 +110,7 @@ begin
     | TID(_) | TNum(_) | TLParen -> 
         let left = f () in 
         t' left
-    | _ -> failwith "t"
+    | other -> raise @@ ParseError (sprintf "Unexpected token '%s'" (string_of_token other))
   and t' left =
     match curr_token() with
     | TPlus | TMinus -> left
@@ -142,6 +147,6 @@ begin
         let left = e () in
         eat(TRParen);
         left
-    | _ -> failwith "f" in
+    | other -> raise @@ ParseError (sprintf "Unexpected token '%s'" (string_of_token other)) in
   e()
 end

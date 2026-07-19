@@ -51,7 +51,7 @@ type compile_stages = {
   code : string;
 }
 let compile_program file =
-  let source = read_file Sys.argv.(1) in
+  let source = read_file file in
   let tokens = lex_ocamllex source in
   let exp = Parser.parse tokens in
   let code = generate_code exp in

@@ -5,16 +5,16 @@ open Asm
 open Exprs
 open Printf
 
+exception GenError of string
 type context = {
   mutable function_name : string;
-  mutable binop_returned : string;
   to_return_stack : string Stack.t;
   mutable has_callings : bool;
   mutable stack_size : int;
 }
 let ct = {
   function_name = "_main"; to_return_stack = Stack.create(); 
-  binop_returned = "err"; has_callings = false; stack_size = 16;
+  has_callings = false; stack_size = 16;
 }
 let arg_regs = ref [ "a0"; "a1"; "a2"; "a3"; "a4"; "a5"; "a6"; "a7" ]
 let temp_regs = ref [ "t0"; "t1"; "t2"; "t3"; "t4"; "t5"; "t6"; "t7" ]
@@ -29,17 +29,17 @@ let free_register reg =
     if List.exists (fun x -> x = reg) !temp_regs
     then begin 
       print_table ();
-      failwith (sprintf "free_register: Free non-allocatable temp register '%s'" reg); 
+      raise @@ GenError (sprintf "free_register: Free non-allocatable temp register '%s'" reg); 
     end
     else temp_regs := reg :: !temp_regs ;
     (* print_endline @@ "Deallocated reg: " ^ reg *)
   end else begin 
     match Hashtbl.find_opt reg_table reg with
-    | Some v -> Hashtbl.remove reg_table reg
-    | None -> failwith (sprintf "free_register: Free non-allocatable argument register '%s'" reg); 
+    | Some _ -> Hashtbl.remove reg_table reg
+    | None -> raise @@ GenError (sprintf "free_register: Free non-allocatable argument register '%s'" reg); 
   end
 let get_free_register regs = 
-  if List.length !regs = 0 then failwith "Not enough registers!"
+  if List.length !regs = 0 then raise @@ GenError "get_free_register: Not enough registers!"
   else begin
     let reg = List.hd !regs in
     regs := List.tl !regs;
@@ -53,11 +53,11 @@ let alloc_and_push_reg () =
   Stack.push rs ct.to_return_stack;
   rs
 let pop_and_check_reg rs =
-  if Stack.is_empty ct.to_return_stack then failwith "pop_and_check_reg: Return-stack is empty";
+  if Stack.is_empty ct.to_return_stack then raise @@ GenError "pop_and_check_reg: Return-stack is empty";
   
   let maybe_rs = Stack.pop ct.to_return_stack in
   if maybe_rs <> rs 
-  then failwith (sprintf "pop_and_check_reg: Expected register %s instead of %s" rs maybe_rs)
+  then raise @@ GenError (sprintf "pop_and_check_reg: Expected register %s instead of %s" rs maybe_rs)
 
 (* let rec is_has_certain_expr predicate x =
   if predicate x then true
@@ -74,7 +74,7 @@ let pop_and_check_reg rs =
     | ECond(left, _, right) -> is_has_certain_expr predicate left ||
                               is_has_certain_expr predicate right
     | ELet(_, expr) -> is_has_certain_expr predicate expr
-    | _ -> failwith "is_has_certain_expr: Not implemented" *)
+    | _ -> raise @@ GenError "is_has_certain_expr: Not implemented" *)
 let rec generate_code = function
 | EFunc(name, argument, body) ->
     ct.function_name <- name;
@@ -146,7 +146,7 @@ let rec generate_code = function
     let rs = begin
     match Hashtbl.find_opt reg_table name with
     | Some v -> v
-    | None -> failwith (sprintf "Unitialized variable '%s'" name)
+    | None -> raise @@ GenError (sprintf "Unitialized variable '%s'" name)
     end in 
     str_of_instr_w(MV(rd, rs))
   
@@ -171,11 +171,11 @@ let rec generate_code = function
     | TLe -> str_of_instr_w (BLE(left_res, right_res, label_name))
     | TEq -> str_of_instr_w (BEQ(left_res, right_res, label_name))
     | TNe -> str_of_instr_w (BNE(left_res, right_res, label_name))
-    | _ -> failwith "Expected one of '<=', '<', '>', '>=' in condition."
+    | _ -> raise @@ GenError "Expected one of '<=', '<', '>', '>=' in condition."
     end
 | ELet(name, expr) -> 
     let rd = match Hashtbl.find_opt reg_table name with
-    | Some v -> failwith (sprintf "ELet: Double allocating reg %s" v)
+    | Some v -> raise @@ GenError (sprintf "ELet: Double allocating reg %s" v)
     | None -> 
         let new_reg = get_free_register arg_regs in
         Hashtbl.add reg_table name new_reg;
@@ -222,4 +222,4 @@ let rec generate_code = function
     str_of_instr_w (MV("a0", rs)) ^
     str_of_instr_w (CALL(name)) ^
     move_res ^ load_ra ^ !loaded_regs
-| _ -> failwith "generate_code: Not implemented";;
+| _ -> raise @@ GenError "generate_code: Not implemented";;
