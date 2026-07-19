@@ -1,10 +1,10 @@
 (library
  (name lex)
  (modules lex lexer)
- (libraries tokens)
-)
+ (libraries tokens))
+
 (library
  (name tokens)
- (modules tokens)
-)
+ (modules tokens))
+
 (ocamllex lexer)

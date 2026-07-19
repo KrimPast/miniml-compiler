@@ -1,14 +1,13 @@
-(library 
+(library
  (name asm)
- (modules asm)
-)
+ (modules asm))
+
 (library
  (name parser)
  (modules parser)
- (libraries lex gn tokens)
-)
+ (libraries lex gn tokens))
+
 (executable
  (name main)
  (modules main)
- (libraries tokens lex parser gn)
-)
+ (libraries tokens lex parser gn))
