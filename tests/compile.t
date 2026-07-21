@@ -5,6 +5,7 @@
   > .global _start
   > _start:
   >     li a0, $2
+  >     li a1, ${3:-0}
   >     call $1
   >     li a7, 94
   >     ecall"; 
@@ -24,7 +25,7 @@
 
 Factorial:
   $ echo "
-  > let fac n =
+  > let rec fac n =
   > if n <= 1 then 1
   > else 
   >     let prev = fac (n - 1) in
@@ -32,13 +33,20 @@ Factorial:
 
 Fibonacci:
   $ echo "
-  > let fib n =
+  > let rec fib n =
   >   if n <= 1 then 1
   >   else 
   > 	let n1 = fib n-1 in
   > 	let n2 = fib n-2 in
   > 	n1 + n2" > fib.mml
 
+Gcd:
+  $ echo "
+  > let rec gcd a b =
+  >   if b = 0 then a
+  >   else 
+  >       let r = a - (a / b) * b in
+  >       gcd b r" > gcd.mml
 
 *** Factorial tests ***
 Factorial test (n = 4)
@@ -72,3 +80,24 @@ Fibonacci test (n = 7)
   $ add_start fib 7 > fib.S
   $ compile_and_run fib.mml
   [21]
+
+*** Gcd tests ***
+  $ add_start gcd 21 14 > gcd.S
+  $ compile_and_run gcd.mml
+  [7]
+
+  $ add_start gcd 14 21 > gcd.S
+  $ compile_and_run gcd.mml
+  [7]
+
+  $ add_start gcd 14 0 > gcd.S
+  $ compile_and_run gcd.mml
+  [14]
+
+  $ add_start gcd 0 14 > gcd.S
+  $ compile_and_run gcd.mml
+  [14]
+
+  $ add_start gcd 686 512 > gcd.S
+  $ compile_and_run gcd.mml
+  [2]

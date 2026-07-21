@@ -108,11 +108,14 @@ let pop_and_check_reg rs =
     | ELet(_, expr) -> is_has_certain_expr predicate expr
     | _ -> raise @@ GenError "is_has_certain_expr: Not implemented" *)
 let rec generate_code = function
-  | EFunc (name, argument, body) ->
+  | EFunc (name, args, body) ->
       ct.function_name <- name;
 
-      let new_reg = get_free_register arg_regs in
-      Hashtbl.add reg_table argument new_reg;
+      List.iter
+        (fun arg ->
+          let new_reg = get_free_register arg_regs in
+          Hashtbl.add reg_table arg new_reg)
+        args;
 
       Stack.push "a0" ct.to_return_stack;
       let body = generate_code body in
@@ -230,16 +233,33 @@ let rec generate_code = function
       let code = generate_code expr in
       pop_and_check_reg rd;
       code
-  | ECall (name, exp) ->
+  | ECall (name, args) ->
       ct.has_callings <- true;
 
       let rd = Stack.top ct.to_return_stack in
-      let rs = alloc_and_push_reg () in
-      let code = generate_code exp in
-      pop_and_check_reg rs;
+      (* let rss = List.map (fun _ -> alloc_and_push_reg ()) args in *)
 
-      free_register rs;
+      (* let args_str = List.map generate_code args in *)
+      (* let args_code = String.concat "" args_str in *)
+      (* List.iter pop_and_check_reg rss; *)
+      (* List.iter free_register rss; *)
 
+      let arg_i = ref 0 in
+      let args_str =
+        List.map
+          (fun arg ->
+            let rs = alloc_and_push_reg () in
+            let arg_str = generate_code arg in
+            pop_and_check_reg rs;
+            free_register rs;
+            let arg_res_move =
+              str_of_instr_w (MV ("a" ^ string_of_int !arg_i, rs))
+            in
+            arg_i := !arg_i + 1;
+            arg_str ^ arg_res_move)
+          args
+      in
+      let args_code = String.concat "" args_str in
       (* Проблема в том, что если положить результат от вызова функции в a0, 
     то нынешний аргумент a0 перезатрётся. Поэтому сразу после получения перекладываем результат во временный регистр,
     а аргумент восстанавливаем со стека *)
@@ -259,8 +279,10 @@ let rec generate_code = function
       let save_ra = str_of_instr_w (SD ("ra", 0, "sp")) in
       let load_ra = str_of_instr_w (LD ("ra", 0, "sp")) in
 
-      code ^ save_ra ^ !saved_regs
-      ^ str_of_instr_w (MV ("a0", rs))
-      ^ str_of_instr_w (CALL name) ^ move_res ^ load_ra ^ !loaded_regs
+      save_ra ^ !saved_regs ^ args_code ^ str_of_instr_w (CALL name) ^ move_res
+      ^ load_ra ^ !loaded_regs
+      (* code ^ save_ra ^ !saved_regs *)
+      (* ^ str_of_instr_w (MV ("a0", rs)) *)
+      (* ^ str_of_instr_w (CALL name) ^ move_res ^ load_ra ^ !loaded_regs *)
   | ENothing -> ""
 (* | _ -> raise @@ GenError "generate_code: Not implemented" *)

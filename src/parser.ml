@@ -7,18 +7,17 @@ open Gn.Exprs
 
 exception ParseError of string
 
+type parser_context = { mutable is_ecall_check : bool }
+
 let parse tokens =
   begin
     let tok = ref 0 in
 
     let curr_token () = tokens.(!tok) in
-    let next_token () = tokens.(!tok + 1) in
     let to_next_token () = tok := !tok + 1 in
 
-    (* let print_token t =
-    t |>
-    string_of_token |>
-    print_string; *)
+    let is_end tk = tk >= Array.length tokens in
+
     let eat (tk : token) =
       let real_token = curr_token () in
       to_next_token ();
@@ -28,6 +27,8 @@ let parse tokens =
              (sprintf "Expected <%s>, but got <%s>." (string_of_token tk)
                 (string_of_token real_token)))
     in
+
+    let ct = { is_ecall_check = false } in
 
     let rec e () =
       match curr_token () with
@@ -54,31 +55,21 @@ let parse tokens =
           in
           to_next_token ();
 
-          let first_arg = curr_token () in
-          while
-            (* скипаем аргументы *)
-            begin match curr_token () with TID _ -> true | _ -> false
+          let args = ref [] in
+          while match curr_token () with TID _ -> true | _ -> false do
+            begin
+              args := !args @ [ curr_token () ];
+              is_func := true;
+              to_next_token ()
             end
-          do
-            is_func := true;
-            to_next_token ()
           done;
 
           eat TEq;
           let body = e () in
 
           if !is_func = true then
-            let first_arg_str =
-              match first_arg with
-              | TID x -> x
-              | other ->
-                  raise
-                    (ParseError
-                       (sprintf
-                          "Expected argument after function name, got '%s'"
-                          (string_of_token other)))
-            in
-            let func = EFunc (name, first_arg_str, body) in
+            let args_str = List.map string_of_token_clear !args in
+            let func = EFunc (name, args_str, body) in
             if curr_token () <> TEnd then begin
               if curr_token () = TSeqEnd then eat TSeqEnd;
               ESeq (func, e ())
@@ -155,20 +146,24 @@ let parse tokens =
       | _ -> left
     and f () =
       match curr_token () with
-      | TID x ->
-          if !tok + 1 < Array.length tokens then
-            begin match next_token () with
-            | TNum _ | TID _ | TLParen ->
-                to_next_token ();
-                let y = e () in
-                ECall (x, y)
-            | _ ->
-                eat (TID x);
-                EVar x
-            end
+      | TID name ->
+          eat (TID name);
+          if ct.is_ecall_check then EVar name
           else begin
-            eat (TID x);
-            EVar x
+            ct.is_ecall_check <- true;
+            let args = ref [] in
+            while
+              (not (is_end !tok))
+              &&
+              match curr_token () with
+              | TNum _ | TID _ | TLParen -> true
+              | _ -> false
+            do
+              args := !args @ [ e () ]
+            done;
+
+            ct.is_ecall_check <- false;
+            if not (List.is_empty !args) then ECall (name, !args) else EVar name
           end
       | TNum n ->
           eat (TNum n);

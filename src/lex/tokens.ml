@@ -53,6 +53,11 @@ let string_of_token = function
   | TRParen -> ")"
   | TEnd -> "$"
 
+let string_of_token_clear = function
+  | TNum n -> string_of_int n
+  | TID name -> name
+  | other -> string_of_token other
+
 let token_of_string = function
   | "if" -> TIf
   | "then" -> TThen

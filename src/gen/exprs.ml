@@ -13,9 +13,9 @@ type expr =
   | ECond of expr * token * expr
   | ESeq of expr * expr
   | ESeqLocal of expr * expr
-  | EFunc of string * string * expr (* func name, argument, body*)
+  | EFunc of string * string list * expr (* func name, args, body*)
   | ELet of string * expr
-  | ECall of string * expr (* func name and argument *)
+  | ECall of string * expr list (* func name and args *)
   | ENothing
 
 let string_of_op = function

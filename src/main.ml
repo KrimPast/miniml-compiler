@@ -51,7 +51,6 @@ OPTIONS
 type compile_stages = {
   source : string;
   tokens : Tokens.token array;
-  exp : Gn.Exprs.expr;
   code : string;
 }
 
@@ -66,7 +65,7 @@ let compile_program file =
       (Printf.sprintf "warning: Not all regs were freed!(%d/%d)"
          (List.length !temp_regs) 8);
 
-  { source; tokens; exp; code }
+  { source; tokens; code }
 
 let () =
   let amount_args = Array.length Sys.argv in
