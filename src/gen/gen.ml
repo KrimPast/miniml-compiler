@@ -17,7 +17,7 @@ type context = {
 
 let ct =
   {
-    function_name = "_start";
+    function_name = "main";
     to_return_stack = Stack.create ();
     has_callings = false;
     stack_size = 16;
@@ -110,6 +110,8 @@ let pop_and_check_reg rs =
 let rec generate_code = function
   | EFunc (name, args, body) ->
       ct.function_name <- name;
+      ct.has_callings <- false;
+      ct.amount_of_if <- 0;
 
       List.iter
         (fun arg ->
@@ -233,33 +235,69 @@ let rec generate_code = function
       let code = generate_code expr in
       pop_and_check_reg rd;
       code
-  | ECall (name, args) ->
-      ct.has_callings <- true;
+  | EClosure (name, args) ->
+      let alloc_closure =
+        "\tla a0, " ^ name ^ "\n" ^ "\tli a1, "
+        ^ string_of_int (List.length args)
+        ^ "\n" ^ "\tcall alloc_closure\n"
+      in
 
-      let rd = Stack.top ct.to_return_stack in
-      (* let rss = List.map (fun _ -> alloc_and_push_reg ()) args in *)
+      let pos = ref 8 in
+      let saved_regs = ref (str_of_instr_w (SD ("ra", 0, "sp"))) in
 
-      (* let args_str = List.map generate_code args in *)
-      (* let args_code = String.concat "" args_str in *)
-      (* List.iter pop_and_check_reg rss; *)
-      (* List.iter free_register rss; *)
+      let loaded_regs = ref (str_of_instr_w (LD ("ra", 0, "sp"))) in
+      let move_res = str_of_instr_w (MV (Stack.top ct.to_return_stack, "a0")) in
 
+      reg_table |> Hashtbl.to_seq
+      |> Seq.iter (fun (_, value) ->
+          (* Если результат функции нужно положить в регистр x, то его сохранять и восстанавливать не нужно *)
+          if value <> "a0" then begin
+            saved_regs := !saved_regs ^ str_of_instr_w (SD (value, !pos, "sp"));
+            loaded_regs :=
+              !loaded_regs ^ str_of_instr_w (LD (value, !pos, "sp"))
+          end;
+          pos := !pos + 8);
+
+      let save_a0 = str_of_instr_w (SD ("a0", !pos, "sp")) in
+      let args_len = List.length args in
       let arg_i = ref 0 in
       let args_str =
         List.map
           (fun arg ->
+            let data_location = !pos + 8 in
+            let additional =
+              "\taddi a1, sp, "
+              ^ string_of_int data_location
+              ^ "\n" ^ "\tli a2, 8\n"
+            in
             let rs = alloc_and_push_reg () in
             let arg_str = generate_code arg in
             pop_and_check_reg rs;
             free_register rs;
-            let arg_res_move =
-              str_of_instr_w (MV ("a" ^ string_of_int !arg_i, rs))
+
+            let load_a0 =
+              if !arg_i <> args_len - 1 then
+                str_of_instr_w (LD ("a0", !pos, "sp"))
+              else ""
             in
             arg_i := !arg_i + 1;
-            arg_str ^ arg_res_move)
+
+            !saved_regs ^ save_a0 ^ arg_str ^ additional
+            ^ str_of_instr_w (SD (rs, data_location, "sp"))
+            ^ str_of_instr_w (CALL "applyN")
+            ^ move_res ^ !loaded_regs ^ load_a0)
           args
       in
       let args_code = String.concat "" args_str in
+
+      str_of_instr_w (ADDI ("sp", "sp", -48))
+      ^ !saved_regs ^ alloc_closure ^ save_a0 ^ !loaded_regs ^ args_code
+      ^ str_of_instr_w (ADDI ("sp", "sp", 48))
+  | ECall (name, args) ->
+      ct.has_callings <- true;
+
+      let rd = Stack.top ct.to_return_stack in
+      let code = generate_code (EClosure (name, args)) in
       (* Проблема в том, что если положить результат от вызова функции в a0, 
     то нынешний аргумент a0 перезатрётся. Поэтому сразу после получения перекладываем результат во временный регистр,
     а аргумент восстанавливаем со стека *)
@@ -279,10 +317,130 @@ let rec generate_code = function
       let save_ra = str_of_instr_w (SD ("ra", 0, "sp")) in
       let load_ra = str_of_instr_w (LD ("ra", 0, "sp")) in
 
-      save_ra ^ !saved_regs ^ args_code ^ str_of_instr_w (CALL name) ^ move_res
-      ^ load_ra ^ !loaded_regs
-      (* code ^ save_ra ^ !saved_regs *)
-      (* ^ str_of_instr_w (MV ("a0", rs)) *)
-      (* ^ str_of_instr_w (CALL name) ^ move_res ^ load_ra ^ !loaded_regs *)
+      save_ra ^ !saved_regs ^ code ^ move_res ^ load_ra ^ !loaded_regs
   | ENothing -> ""
-(* | _ -> raise @@ GenError "generate_code: Not implemented" *)
+
+let generate_program expr =
+  let runtime =
+    {|.text
+.global main
+alloc_closure:
+	# input: a0 - codeptr, a1 - arity
+	addi sp, sp, -32
+	sd ra, 24(sp)
+	sd s0, 16(sp)
+	sd s1, 8(sp)
+	mv s1, a0
+	mv s0, a1
+
+	slli a1, a1, 3 	# a1 *= 8
+	addi a1, a1, 16	
+	li a0, 1
+	call calloc@plt
+	sw s0, 0(a0)
+	sd s1, 8(a0)
+
+	ld ra, 24(sp)
+	ld s0, 16(sp)
+	ld s1, 8(sp)
+	addi sp, sp, 32
+	# output: a0 - closure
+	ret
+applyN:
+	# input: a0 - closure ptr, a1 - data ptr, a2 - data size
+	addi sp, sp, -48
+	sd ra, 40(sp)
+	sd s0, 32(sp)
+	sd s1, 24(sp)
+	sd s2, 16(sp)
+	sd s3, 8(sp)
+
+	mv s0, a0
+	mv s3, a1
+	mv s1, a2
+	mv a1, a2
+	li a0, 1
+	call calloc@plt
+	mv s2, a0
+	mv a2, s1
+	mv a1, s3
+	call memcpy@plt
+	lw a5, 4(s0) # load arg_received
+	addiw a4, a5, 1
+	sw a4, 4(s0)
+	
+	slli a5, a5, 3
+	addi a5, a5, 16
+	add	s0, s0, a5
+	sd s2, 0(s0) # save data_copy_ptr in closure
+
+	ld ra, 40(sp)
+	
+  sub	s0, s0, a5
+	lw t1, 0(s0)
+	beq a4, t1, applyN_result
+
+	
+	ld s0, 32(sp)
+	ld s1, 24(sp)
+	ld s2, 16(sp)
+	ld s3, 8(sp)
+	addi sp, sp, 48
+	ret
+applyN_result:
+	# t0 - counter, t1 - amount args
+	li t0, 0
+	beq t0, t1, applyN_call
+
+	ld a0, 16(s0)
+	ld a0, 0(a0)
+	addi t0, t0, 1
+	beq t0, t1, applyN_call
+
+	ld a1, 24(s0)
+	ld a1, 0(a1) 
+	addi t0, t0, 1
+	beq t0, t1, applyN_call
+
+	ld a2, 32(s0)
+	ld a2, 0(a2) 
+	addi t0, t0, 1
+	beq t0, t1, applyN_call
+
+	ld a3, 40(s0) 
+	ld a3, 0(a3) 
+	addi t0, t0, 1
+	beq t0, t1, applyN_call
+
+	ld a4, 48(s0)
+	ld a4, 0(a4) 
+	addi t0, t0, 1
+	beq t0, t1, applyN_call
+
+	ld a5, 56(s0) 
+	ld a5, 0(a5) 
+	addi t0, t0, 1
+	beq t0, t1, applyN_call
+
+	ld a6, 64(s0) 
+	ld a6, 0(a6) 
+	addi t0, t0, 1
+	beq t0, t1, applyN_call
+
+	ld a7, 72(s0) 
+	ld a7, 0(a7) 
+	addi t0, t0, 1
+	beq t0, t1, applyN_call
+
+	li a7, 94
+	li a0, 53
+	ecall
+applyN_call:
+	ld t2, 8(s0)
+
+	addi sp, sp, 48
+	jalr zero, 0(t2)
+|}
+  in
+  let code = generate_code expr in
+  runtime ^ code

@@ -2,8 +2,8 @@
 
   $ add_start () { 
   > echo "
-  > .global _start
-  > _start:
+  > .global main
+  > main:
   >     li a0, $2
   >     li a1, ${3:-0}
   >     call $1
@@ -12,8 +12,7 @@
   > }
 
   $ run () { 
-  > riscv64-linux-gnu-as $1 -o temp.o &&
-  > riscv64-linux-gnu-ld temp.o &&
+  > riscv64-linux-gnu-gcc $1 -o a.out &&
   > qemu-riscv64 -L /usr/riscv64-linux-gnu -cpu rv64 ./a.out
   > }
 
