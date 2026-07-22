@@ -58,7 +58,7 @@ let compile_program file =
   let source = read_file file in
   let tokens = lex_ocamllex source in
   let exp = Parser.parse tokens in
-  let code = generate_code exp in
+  let code = generate_program exp in
 
   if List.length !temp_regs <> 8 then
     print_endline
