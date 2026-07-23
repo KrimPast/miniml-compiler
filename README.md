@@ -1,8 +1,9 @@
 # Simple MiniML compiler
 ## Implemented
-- Compilation of recursive `factorial` and recursive `fibonacci` functions.
+- Compilation of recursive `factorial`, `fibonacci` and `gcd` functions.
 - Support of local variables.
 - Support of complex arithmetic equations.
+- Closures.
 - `if`-`then`-`else` clause.
 ## Building
 ```sh
@@ -32,10 +33,10 @@ You can find examples of miniML code in `./examples/` directory.
 ```sh
 ./main.exe infile.mml > main.S
 ```
-Don't forget put `_main` body to use your function.
+Don't forget put `main` body to use your function.
 Example for `factorial`:
 ```S
-_main:
+main:
     li a0, 5
     call fac
     li a7, 94
@@ -43,8 +44,7 @@ _main:
 ```
 And after:
 ```sh
-riscv64-linux-gnu-as main.S -o main.o &&
-riscv64-linux-gnu-ld main.o &&
+riscv64-linux-gnu-gcc main.S -o main.out && 
 qemu-riscv64 -L /usr/riscv64-linux-gnu -cpu rv64 ./a.out
 ```
 
