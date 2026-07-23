@@ -1,4 +1,8 @@
 (library
  (name gn)
  (modules exprs gen)
- (libraries lex asm))
+ (libraries lex asm runtime_risc_v))
+
+(library
+ (name runtime_risc_v)
+ (modules runtime_risc_v))
