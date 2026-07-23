@@ -236,63 +236,67 @@ let rec generate_code = function
       pop_and_check_reg rd;
       code
   | EClosure (name, args) ->
+      let alloc_stack = str_of_instr_w (ADDI ("sp", "sp", -48)) in
       let alloc_closure =
-        "\tla a0, " ^ name ^ "\n" ^ "\tli a1, "
-        ^ string_of_int (List.length args)
-        ^ "\n" ^ "\tcall alloc_closure\n"
+        str_of_instr_w (LA ("a0", name))
+        ^ str_of_instr_w (LI ("a1", List.length args))
+        ^ str_of_instr_w (CALL "alloc_closure")
+        ^ str_of_instr_w (MV ("s0", "a0"))
       in
 
       let pos = ref 8 in
       let saved_regs = ref (str_of_instr_w (SD ("ra", 0, "sp"))) in
-
       let loaded_regs = ref (str_of_instr_w (LD ("ra", 0, "sp"))) in
-      let move_res = str_of_instr_w (MV (Stack.top ct.to_return_stack, "a0")) in
-
-      reg_table |> Hashtbl.to_seq
-      |> Seq.iter (fun (_, value) ->
+      reg_table |> Hashtbl.to_seq_values |> List.of_seq
+      (* Convert Seq.t to list *) |> List.sort String.compare
+      |> List.iter (fun value ->
+          saved_regs := !saved_regs ^ str_of_instr_w (SD (value, !pos, "sp"));
           (* Если результат функции нужно положить в регистр x, то его сохранять и восстанавливать не нужно *)
           if value <> "a0" then begin
-            saved_regs := !saved_regs ^ str_of_instr_w (SD (value, !pos, "sp"));
             loaded_regs :=
               !loaded_regs ^ str_of_instr_w (LD (value, !pos, "sp"))
           end;
           pos := !pos + 8);
 
-      let save_a0 = str_of_instr_w (SD ("a0", !pos, "sp")) in
+      let load_a0 = str_of_instr_w (LD ("a0", 8, "sp")) in
+
+      (* let save_a0 = str_of_instr_w (SD ("a0", !pos, "sp")) in *)
       let args_len = List.length args in
       let arg_i = ref 0 in
+      let s0_location = !pos in
+      let data_location = !pos + 8 in
+
       let args_str =
         List.map
           (fun arg ->
-            let data_location = !pos + 8 in
-            let additional =
-              "\taddi a1, sp, "
-              ^ string_of_int data_location
-              ^ "\n" ^ "\tli a2, 8\n"
+            let applyN_args =
+              str_of_instr_w (ADDI ("a1", "sp", data_location))
+              ^ str_of_instr_w (LI ("a2", 8))
             in
+
             let rs = alloc_and_push_reg () in
-            let arg_str = generate_code arg in
+            let arg_code = generate_code arg in
             pop_and_check_reg rs;
             free_register rs;
+            let rs_save = str_of_instr_w (SD (rs, 0, "a1")) in
 
-            let load_a0 =
-              if !arg_i <> args_len - 1 then
-                str_of_instr_w (LD ("a0", !pos, "sp"))
-              else ""
-            in
+            let load_closure = str_of_instr_w (MV ("a0", "s0")) in
+            let load_a0_curr = if !arg_i <> args_len - 1 then load_a0 else "" in
             arg_i := !arg_i + 1;
 
-            !saved_regs ^ save_a0 ^ arg_str ^ additional
-            ^ str_of_instr_w (SD (rs, data_location, "sp"))
+            arg_code ^ applyN_args ^ rs_save ^ load_closure
             ^ str_of_instr_w (CALL "applyN")
-            ^ move_res ^ !loaded_regs ^ load_a0)
+            ^ load_a0_curr ^ !loaded_regs)
           args
       in
       let args_code = String.concat "" args_str in
+      let dealloc_stack = str_of_instr_w (ADDI ("sp", "sp", 48)) in
 
-      str_of_instr_w (ADDI ("sp", "sp", -48))
-      ^ !saved_regs ^ alloc_closure ^ save_a0 ^ !loaded_regs ^ args_code
-      ^ str_of_instr_w (ADDI ("sp", "sp", 48))
+      alloc_stack
+      ^ str_of_instr_w (SD ("s0", s0_location, "sp"))
+      ^ !saved_regs ^ alloc_closure ^ load_a0 ^ !loaded_regs ^ args_code
+      ^ str_of_instr_w (LD ("s0", s0_location, "sp"))
+      ^ dealloc_stack
   | ECall (name, args) ->
       ct.has_callings <- true;
 
@@ -302,8 +306,8 @@ let rec generate_code = function
     то нынешний аргумент a0 перезатрётся. Поэтому сразу после получения перекладываем результат во временный регистр,
     а аргумент восстанавливаем со стека *)
       let pos = ref 8 in
-      let saved_regs = ref "" in
-      let loaded_regs = ref "" in
+      let saved_regs = ref (str_of_instr_w (SD ("ra", 0, "sp"))) in
+      let loaded_regs = ref (str_of_instr_w (LD ("ra", 0, "sp"))) in
       reg_table |> Hashtbl.to_seq
       |> Seq.iter (fun (_, value) ->
           (* Если результат функции нужно положить в регистр x, то его сохранять и восстанавливать не нужно *)
@@ -314,10 +318,8 @@ let rec generate_code = function
           end;
           pos := !pos + 8);
       let move_res = str_of_instr_w (MV (rd, "a0")) in
-      let save_ra = str_of_instr_w (SD ("ra", 0, "sp")) in
-      let load_ra = str_of_instr_w (LD ("ra", 0, "sp")) in
 
-      save_ra ^ !saved_regs ^ code ^ move_res ^ load_ra ^ !loaded_regs
+      !saved_regs ^ code ^ move_res ^ !loaded_regs
   | ENothing -> ""
 
 let generate_program expr =

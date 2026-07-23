@@ -22,6 +22,7 @@ type instr =
   | BLE of string * string * string (* <= *)
   | BEQ of string * string * string (* = *)
   | BNE of string * string * string (* <> *)
+  | LA of string * string (* load address *)
   | J of string
   | RET
   | ECALL
@@ -44,6 +45,7 @@ let str_of_instr = function
   | BLE (rs1, rs2, label) -> sprintf "ble %s, %s, %s" rs1 rs2 label
   | BEQ (rs1, rs2, label) -> sprintf "beq %s, %s, %s" rs1 rs2 label
   | BNE (rs1, rs2, label) -> sprintf "bne %s, %s, %s" rs1 rs2 label
+  | LA (rs, label) -> sprintf "la %s, %s" rs label
   | J label -> "j " ^ label
   | RET -> "ret"
   | ECALL -> "ecall"
