@@ -13,7 +13,6 @@ rule token = parse
   | space+      { token lexbuf }
   | digit+ as num
                 { 
-                  (* printf "integer: %s (%d)\n" num (int_of_string num); *)
                   TNum (int_of_string num)
                 }
   | "let"       { TLet }
@@ -23,7 +22,6 @@ rule token = parse
   | "rec"       { TRec }
   | "in"        { TContinueLocal }
   | id as text  { 
-                  (* printf "var: %s\n" text; *)
                   TID(text)
                 }
   | "<="        { TLe }
@@ -44,9 +42,5 @@ rule token = parse
 
   | eof         { TEnd }
   | _           {
-                  let word = (Lexing.lexeme lexbuf) in
-                  let position = (Lexing.lexeme_start_p lexbuf) in
-                  let line = position.pos_lnum in
-                  let sym = position.pos_bol in
-                  raise (LexError( sprintf "Undefined symbol(line %d, sym %d) '%s'" line sym word))
+                  raise (LexError( sprintf "Undefined symbol: '%s'" (Lexing.lexeme lexbuf)))
                 }

@@ -15,6 +15,8 @@ type context = {
   mutable amount_of_if : int;
 }
 
+let symbol_table : (string, sexpr) Hashtbl.t = Hashtbl.create 128
+
 let ct =
   {
     function_name = "main";
@@ -26,36 +28,38 @@ let ct =
 
 let arg_regs = ref [ "a0"; "a1"; "a2"; "a3"; "a4"; "a5"; "a6"; "a7" ]
 let temp_regs = ref [ "t0"; "t1"; "t2"; "t3"; "t4"; "t5"; "t6"; "t7" ]
-let reg_table = Hashtbl.create 16
 
-(* Useful ideas:
-General: 
-- Scope (it may be function, begin ... end and etc.)
+let hash_table_reassign dest src =
+  Hashtbl.clear dest;
+  Hashtbl.iter (fun k v -> Hashtbl.replace dest k v) src
 
-Optimization:
-- Store register value (to avoid repeated assignment the same value) 
-*)
+let get_registers_to_save () =
+  Hashtbl.fold
+    (fun _ v acc ->
+      match v with
+      | SVar vr ->
+          begin match vr.placement with
+          | SPlaceIsReg reg -> reg :: acc
+          | _ -> acc
+          end
+      | _ -> acc)
+    symbol_table []
+  |> List.sort String.compare
 
-let print_table () =
-  Hashtbl.iter (fun key value -> Printf.printf "%s -> %s\n" key value) reg_table
-
-let is_persistent_reg reg =
-  Hashtbl.fold (fun _ v acc -> acc || v = reg) reg_table false
+let is_persistent_reg (reg : string) = String.starts_with ~prefix:"a" reg
 
 let free_register reg =
   if not (is_persistent_reg reg) then
     begin if List.exists (fun x -> x = reg) !temp_regs then begin
-      print_table ();
       raise
         (GenError
            (sprintf "free_register: Free non-allocatable temp register '%s'" reg))
     end
     else temp_regs := reg :: !temp_regs
-      (* print_endline @@ "Deallocated reg: " ^ reg *)
     end
   else
-    begin match Hashtbl.find_opt reg_table reg with
-    | Some _ -> Hashtbl.remove reg_table reg
+    begin match Hashtbl.find_opt symbol_table reg with
+    | Some _ -> Hashtbl.remove symbol_table reg
     | None ->
         raise
           (GenError
@@ -69,7 +73,6 @@ let get_free_register regs =
   else begin
     let reg = List.hd !regs in
     regs := List.tl !regs;
-    (* print_endline @@ "Allocated reg: " ^ reg; *)
     reg
   end
 
@@ -91,41 +94,35 @@ let pop_and_check_reg rs =
          (sprintf "pop_and_check_reg: Expected register %s instead of %s" rs
             maybe_rs))
 
-(* let rec is_has_certain_expr predicate x =
-  if predicate x then true
-  else 
-    match x with
-    | EFunc(_, _, body) -> is_has_certain_expr predicate body
-    | EIf(cond, thn, els) -> is_has_certain_expr predicate cond ||
-                            is_has_certain_expr predicate thn || 
-                            is_has_certain_expr predicate els 
-    | EBinop(_, left, right) -> is_has_certain_expr predicate left ||
-                                is_has_certain_expr predicate right
-    | ESeqLocal(curr, next) ->  is_has_certain_expr predicate curr ||
-                                is_has_certain_expr predicate next
-    | ECond(left, _, right) -> is_has_certain_expr predicate left ||
-                              is_has_certain_expr predicate right
-    | ELet(_, expr) -> is_has_certain_expr predicate expr
-    | _ -> raise @@ GenError "is_has_certain_expr: Not implemented" *)
 let rec generate_code = function
   | EFunc (name, args, body) ->
       ct.function_name <- name;
       ct.has_callings <- false;
       ct.amount_of_if <- 0;
 
+      let saved_symbol_table = Hashtbl.copy symbol_table in
+
       List.iter
         (fun arg ->
           let new_reg = get_free_register arg_regs in
-          Hashtbl.add reg_table arg new_reg)
+          Hashtbl.add symbol_table arg
+            (SVar { placement = SPlaceIsReg new_reg }))
         args;
 
       Stack.push "a0" ct.to_return_stack;
+      (* Add `if` to next stroke if this function is recursive *)
+      Hashtbl.replace symbol_table name
+        (SFunc { amount_args = List.length args });
+
       let body = generate_code body in
+
+      hash_table_reassign symbol_table saved_symbol_table;
       pop_and_check_reg "a0";
 
       (* If outer callings is exist in this function, then save our arguments *)
       if ct.has_callings = true then begin
-        ct.stack_size <- ((Hashtbl.length reg_table / 2) + 1) * 16;
+        (* Fix stack size *)
+        ct.stack_size <- ((Hashtbl.length symbol_table / 2) + 1) * 16;
         let alloc_frame = str_of_instr_w (ADDI ("sp", "sp", -ct.stack_size)) in
         let dealloc_frame = str_of_instr_w (ADDI ("sp", "sp", ct.stack_size)) in
 
@@ -187,8 +184,16 @@ let rec generate_code = function
   | EVar name ->
       let rd = Stack.top ct.to_return_stack in
       let rs =
-        begin match Hashtbl.find_opt reg_table name with
-        | Some v -> v
+        begin match Hashtbl.find_opt symbol_table name with
+        | Some found ->
+            begin match found with
+            | SVar { placement : splacement } ->
+                begin match placement with
+                | SPlaceIsReg reg -> reg
+                | _ -> raise @@ GenError "SPlaceIsStack: Not implemented"
+                end
+            | _ -> raise @@ GenError "Expected variable, but got function"
+            end
         | None -> raise @@ GenError (sprintf "Unitialized variable '%s'" name)
         end
       in
@@ -221,14 +226,14 @@ let rec generate_code = function
       end
   | ELet (name, expr) ->
       let rd =
-        match Hashtbl.find_opt reg_table name with
-        | Some v ->
-            raise @@ GenError (sprintf "ELet: Double allocating reg %s" v)
+        match Hashtbl.find_opt symbol_table name with
+        | Some _ ->
+            (* По канону, присвоение тому же имени в miniML возможно, но пока ограничимся этим *)
+            raise @@ GenError (sprintf "ELet: Attempt to reuse `%s` name." name)
         | None ->
             let new_reg = get_free_register arg_regs in
-            Hashtbl.add reg_table name new_reg;
-            (* print_endline (sprintf "ELet: Allocated %s" new_reg); *)
-            (* print_table(); *)
+            Hashtbl.add symbol_table name
+              (SVar { placement = SPlaceIsReg new_reg });
             new_reg
       in
       Stack.push rd ct.to_return_stack;
@@ -247,16 +252,19 @@ let rec generate_code = function
       let pos = ref 8 in
       let saved_regs = ref (str_of_instr_w (SD ("ra", 0, "sp"))) in
       let loaded_regs = ref (str_of_instr_w (LD ("ra", 0, "sp"))) in
-      reg_table |> Hashtbl.to_seq_values |> List.of_seq
-      (* Convert Seq.t to list *) |> List.sort String.compare
-      |> List.iter (fun value ->
+
+      let to_save = get_registers_to_save () in
+
+      List.iter
+        (fun value ->
           saved_regs := !saved_regs ^ str_of_instr_w (SD (value, !pos, "sp"));
           (* Если результат функции нужно положить в регистр x, то его сохранять и восстанавливать не нужно *)
           if value <> "a0" then begin
             loaded_regs :=
               !loaded_regs ^ str_of_instr_w (LD (value, !pos, "sp"))
           end;
-          pos := !pos + 8);
+          pos := !pos + 8)
+        to_save;
 
       let load_a0 = str_of_instr_w (LD ("a0", 8, "sp")) in
 
@@ -308,15 +316,18 @@ let rec generate_code = function
       let pos = ref 8 in
       let saved_regs = ref (str_of_instr_w (SD ("ra", 0, "sp"))) in
       let loaded_regs = ref (str_of_instr_w (LD ("ra", 0, "sp"))) in
-      reg_table |> Hashtbl.to_seq
-      |> Seq.iter (fun (_, value) ->
+
+      let to_save = get_registers_to_save () in
+      List.iter
+        (fun value ->
           (* Если результат функции нужно положить в регистр x, то его сохранять и восстанавливать не нужно *)
           if value <> rd then begin
             saved_regs := !saved_regs ^ str_of_instr_w (SD (value, !pos, "sp"));
             loaded_regs :=
               !loaded_regs ^ str_of_instr_w (LD (value, !pos, "sp"))
           end;
-          pos := !pos + 8);
+          pos := !pos + 8)
+        to_save;
       let move_res = str_of_instr_w (MV (rd, "a0")) in
 
       !saved_regs ^ code ^ move_res ^ !loaded_regs
