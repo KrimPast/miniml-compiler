@@ -1,3 +1,5 @@
-let a = 2 in
-let b = 3 in
-let c = a / (2 * b)
+let f x = x * 10
+let g b = 
+    let a = 5 in
+    a + b
+let h c e = c / e

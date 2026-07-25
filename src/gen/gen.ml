@@ -28,7 +28,6 @@ let ct =
     amount_of_if = 0;
   }
 
-let arg_regs = ref [ "a0"; "a1"; "a2"; "a3"; "a4"; "a5"; "a6"; "a7" ]
 let temp_regs = ref [ "t0"; "t1"; "t2"; "t3"; "t4"; "t5"; "t6"; "t7" ]
 
 let hash_table_reassign dest src =
@@ -48,40 +47,40 @@ let get_registers_to_save () =
     symbol_table []
   |> List.sort String.compare
 
-let is_persistent_reg (reg : string) = String.starts_with ~prefix:"a" reg
+let free_temp_register reg =
+  if List.exists (fun x -> x = reg) !temp_regs then
+    raise
+      (GenError
+         (sprintf "free_temp_register: Free non-allocatable temp register '%s'"
+            reg))
+  else temp_regs := reg :: !temp_regs
 
-let free_register reg =
-  if not (is_persistent_reg reg) then
-    begin if List.exists (fun x -> x = reg) !temp_regs then begin
-      raise
-        (GenError
-           (sprintf "free_register: Free non-allocatable temp register '%s'" reg))
-    end
-    else temp_regs := reg :: !temp_regs
-    end
-  else
-    begin match Hashtbl.find_opt symbol_table reg with
-    | Some _ -> Hashtbl.remove symbol_table reg
-    | None ->
-        raise
-          (GenError
-             (sprintf
-                "free_register: Free non-allocatable argument register '%s'" reg))
-    end
-
-let get_free_register regs =
-  if List.length !regs = 0 then
-    raise @@ GenError "get_free_register: Not enough registers!"
+let get_free_temp_register () =
+  if List.length !temp_regs = 0 then
+    raise @@ GenError "get_free_temp_register: Not enough registers!"
   else begin
-    let reg = List.hd !regs in
-    regs := List.tl !regs;
+    let reg = List.hd !temp_regs in
+    temp_regs := List.tl !temp_regs;
     reg
   end
+
+let get_free_arg_register () =
+  let busy_registers = get_registers_to_save () in
+
+  let maybe_reg =
+    List.find_opt
+      (fun el -> not (List.mem el busy_registers))
+      [ "a0"; "a1"; "a2"; "a3"; "a4"; "a5"; "a6"; "a7" ]
+  in
+
+  match maybe_reg with
+  | Some reg -> reg
+  | _ -> raise @@ GenError "Not enough argument registers!"
 
 let is_has_register_to_return () = not (Stack.is_empty ct.to_return_stack)
 
 let alloc_and_push_reg () =
-  let rs = get_free_register temp_regs in
+  let rs = get_free_temp_register () in
   Stack.push rs ct.to_return_stack;
   rs
 
@@ -106,7 +105,7 @@ let rec generate_code = function
 
       List.iter
         (fun arg ->
-          let new_reg = get_free_register arg_regs in
+          let new_reg = get_free_arg_register () in
           Hashtbl.add symbol_table arg
             (SVar { placement = SPlaceIsReg new_reg }))
         args;
@@ -159,8 +158,8 @@ let rec generate_code = function
       let right_code = generate_code right in
       pop_and_check_reg rs2;
 
-      free_register rs1;
-      free_register rs2;
+      free_temp_register rs1;
+      free_temp_register rs2;
 
       let rd = Stack.top ct.to_return_stack in
       let inst =
@@ -212,8 +211,8 @@ let rec generate_code = function
       let right_code = generate_code right in
       pop_and_check_reg right_res;
 
-      free_register left_res;
-      free_register right_res;
+      free_temp_register left_res;
+      free_temp_register right_res;
 
       left_code ^ right_code
       ^ begin match op with
@@ -227,21 +226,19 @@ let rec generate_code = function
           raise @@ GenError "Expected one of '<=', '<', '>', '>=' in condition."
       end
   | ELet (name, expr) ->
-      let rd =
-        match Hashtbl.find_opt symbol_table name with
-        | Some _ ->
-            (* По канону, присвоение тому же имени в miniML возможно, но пока ограничимся этим *)
-            raise @@ GenError (sprintf "ELet: Attempt to reuse `%s` name." name)
-        | None ->
-            let new_reg = get_free_register arg_regs in
-            Hashtbl.add symbol_table name
-              (SVar { placement = SPlaceIsReg new_reg });
-            new_reg
-      in
-      Stack.push rd ct.to_return_stack;
-      let code = generate_code expr in
-      pop_and_check_reg rd;
-      code
+      begin match Hashtbl.find_opt symbol_table name with
+      | Some _ ->
+          (* По канону, присвоение тому же имени в miniML возможно, но пока ограничимся этим *)
+          raise @@ GenError (sprintf "ELet: Attempt to reuse `%s` name." name)
+      | None ->
+          let rd = get_free_arg_register () in
+          Stack.push rd ct.to_return_stack;
+          let code = generate_code expr in
+
+          Hashtbl.add symbol_table name (SVar { placement = SPlaceIsReg rd });
+          pop_and_check_reg rd;
+          code
+      end
   | EClosure (name, args) ->
       ct.has_closures <- true;
       let alloc_stack = str_of_instr_w (ADDI ("sp", "sp", -48)) in
@@ -288,7 +285,7 @@ let rec generate_code = function
             let rs = alloc_and_push_reg () in
             let arg_code = generate_code arg in
             pop_and_check_reg rs;
-            free_register rs;
+            free_temp_register rs;
             let rs_save = str_of_instr_w (SD (rs, 0, "a1")) in
 
             let load_closure = str_of_instr_w (MV ("a0", "s0")) in
@@ -346,7 +343,7 @@ let rec generate_code = function
                 let rs = alloc_and_push_reg () in
                 let arg_str = generate_code arg in
                 pop_and_check_reg rs;
-                free_register rs;
+                free_temp_register rs;
                 let arg_res_move =
                   str_of_instr_w (MV ("a" ^ string_of_int !arg_i, rs))
                 in
