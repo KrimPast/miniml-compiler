@@ -96,7 +96,7 @@ let pop_and_check_reg rs =
             maybe_rs))
 
 let rec generate_code = function
-  | EFunc (name, args, body) ->
+  | EFunc { name; args; body; is_rec } ->
       ct.function_name <- name;
       ct.has_callings <- false;
       ct.amount_of_if <- 0;
@@ -111,15 +111,16 @@ let rec generate_code = function
         args;
 
       Stack.push "a0" ct.to_return_stack;
-      (* Add `if` to next stroke if this function is recursive *)
-      Hashtbl.replace symbol_table name
-        (SFunc { amount_args = List.length args });
+
+      let sfunc = SFunc { amount_args = List.length args } in
+      if is_rec then Hashtbl.replace symbol_table name sfunc;
 
       let body = generate_code body in
 
       ct.stack_size <-
         (((List.length @@ get_registers_to_save ()) / 2) + 1) * 16;
       hash_table_reassign symbol_table saved_symbol_table;
+      Hashtbl.replace symbol_table name sfunc;
       pop_and_check_reg "a0";
 
       (* If outer callings is exist in this function, then save our arguments *)

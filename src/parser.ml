@@ -35,10 +35,12 @@ let parse tokens =
       | TLet ->
           eat TLet;
 
+          let is_rec = ref false in
           let is_func = ref false in
           (* скипаем keyword "rec" *)
           begin match curr_token () with
           | TRec ->
+              is_rec := true;
               is_func := true;
               to_next_token ()
           | _ -> ()
@@ -69,7 +71,9 @@ let parse tokens =
 
           if !is_func = true then
             let args_str = List.map string_of_token_clear !args in
-            let func = EFunc (name, args_str, body) in
+            let func =
+              EFunc { name; args = args_str; body; is_rec = !is_rec }
+            in
             if curr_token () <> TEnd then begin
               if curr_token () = TSeqEnd then eat TSeqEnd;
               ESeq (func, e ())
