@@ -19,6 +19,14 @@ type expr =
   | ECall of string * expr list (* func name and args *)
   | ENothing
 
+type splacement =
+  | SPlaceIsReg of string
+  | SPlaceIsStack of { register : string; offset : int }
+
+type sexpr =
+  | SFunc of { amount_args : int }
+  | SVar of { placement : splacement }
+
 let string_of_op = function
   | Add -> "+"
   | Sub -> "-"
