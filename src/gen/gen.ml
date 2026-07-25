@@ -11,6 +11,7 @@ type context = {
   mutable function_name : string;
   to_return_stack : string Stack.t;
   mutable has_callings : bool;
+  mutable has_closures : bool;
   mutable stack_size : int;
   mutable amount_of_if : int;
 }
@@ -22,6 +23,7 @@ let ct =
     function_name = "main";
     to_return_stack = Stack.create ();
     has_callings = false;
+    has_closures = false;
     stack_size = 16;
     amount_of_if = 0;
   }
@@ -116,13 +118,13 @@ let rec generate_code = function
 
       let body = generate_code body in
 
+      ct.stack_size <-
+        (((List.length @@ get_registers_to_save ()) / 2) + 1) * 16;
       hash_table_reassign symbol_table saved_symbol_table;
       pop_and_check_reg "a0";
 
       (* If outer callings is exist in this function, then save our arguments *)
       if ct.has_callings = true then begin
-        (* Fix stack size *)
-        ct.stack_size <- ((Hashtbl.length symbol_table / 2) + 1) * 16;
         let alloc_frame = str_of_instr_w (ADDI ("sp", "sp", -ct.stack_size)) in
         let dealloc_frame = str_of_instr_w (ADDI ("sp", "sp", ct.stack_size)) in
 
@@ -241,6 +243,7 @@ let rec generate_code = function
       pop_and_check_reg rd;
       code
   | EClosure (name, args) ->
+      ct.has_closures <- true;
       let alloc_stack = str_of_instr_w (ADDI ("sp", "sp", -48)) in
       let alloc_closure =
         str_of_instr_w (LA ("a0", name))
@@ -309,7 +312,52 @@ let rec generate_code = function
       ct.has_callings <- true;
 
       let rd = Stack.top ct.to_return_stack in
-      let code = generate_code (EClosure (name, args)) in
+      let is_closure =
+        begin match Hashtbl.find_opt symbol_table name with
+        | Some v ->
+            begin match v with
+            | SFunc { amount_args } ->
+                let put_args = List.length args in
+                if put_args < amount_args then true
+                else if put_args = amount_args then false
+                else
+                  raise
+                  @@ GenError
+                       (sprintf
+                          "Attempt to put %d arguments to function `%s`, but \
+                           it has %d."
+                          put_args name amount_args)
+            | _ ->
+                raise
+                @@ GenError
+                     (sprintf "Attempt to call variable `%s` as function" name)
+            end
+        | _ -> raise @@ GenError (sprintf "Function `%s` is not found" name)
+        end
+      in
+
+      let code =
+        if is_closure then generate_code (EClosure (name, args))
+        else begin
+          let arg_i = ref 0 in
+          let args_str =
+            List.map
+              (fun arg ->
+                let rs = alloc_and_push_reg () in
+                let arg_str = generate_code arg in
+                pop_and_check_reg rs;
+                free_register rs;
+                let arg_res_move =
+                  str_of_instr_w (MV ("a" ^ string_of_int !arg_i, rs))
+                in
+                arg_i := !arg_i + 1;
+                arg_str ^ arg_res_move)
+              args
+          in
+          let args_code = String.concat "" args_str in
+          args_code ^ str_of_instr_w (CALL name)
+        end
+      in
       (* Проблема в том, что если положить результат от вызова функции в a0, 
     то нынешний аргумент a0 перезатрётся. Поэтому сразу после получения перекладываем результат во временный регистр,
     а аргумент восстанавливаем со стека *)
@@ -334,6 +382,6 @@ let rec generate_code = function
   | ENothing -> ""
 
 let generate_program expr =
-  let runtime = Runtime_risc_v.runtime in
+  let runtime = if ct.has_closures then Runtime_risc_v.runtime else "" in
   let code = generate_code expr in
   runtime ^ code
