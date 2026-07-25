@@ -151,27 +151,29 @@ let rec generate_code = function
       condition ^ else_code ^ jump_final ^ then_label ^ then_code ^ fin_label
     end
   | EBinop (op, left, right) ->
-      let rs1 = alloc_and_push_reg () in
-      let left_code = generate_code left in
-      pop_and_check_reg rs1;
+      if not (Stack.is_empty ct.to_return_stack) then (
+        let rs1 = alloc_and_push_reg () in
+        let left_code = generate_code left in
+        pop_and_check_reg rs1;
 
-      let rs2 = alloc_and_push_reg () in
-      let right_code = generate_code right in
-      pop_and_check_reg rs2;
+        let rs2 = alloc_and_push_reg () in
+        let right_code = generate_code right in
+        pop_and_check_reg rs2;
 
-      free_temp_register rs1;
-      free_temp_register rs2;
+        free_temp_register rs1;
+        free_temp_register rs2;
 
-      let rd = Stack.top ct.to_return_stack in
-      let inst =
-        begin match op with
-        | Add -> str_of_instr_w (ADD (rd, rs1, rs2))
-        | Sub -> str_of_instr_w (SUB (rd, rs1, rs2))
-        | Multiply -> str_of_instr_w (MUL (rd, rs1, rs2))
-        | Divide -> str_of_instr_w (DIV (rd, rs1, rs2))
-        end
-      in
-      left_code ^ right_code ^ inst
+        let rd = Stack.top ct.to_return_stack in
+        let inst =
+          begin match op with
+          | Add -> str_of_instr_w (ADD (rd, rs1, rs2))
+          | Sub -> str_of_instr_w (SUB (rd, rs1, rs2))
+          | Multiply -> str_of_instr_w (MUL (rd, rs1, rs2))
+          | Divide -> str_of_instr_w (DIV (rd, rs1, rs2))
+          end
+        in
+        left_code ^ right_code ^ inst)
+      else ""
   | ESeq (curr, next) ->
       let curr_code = generate_code curr in
       let next_code = generate_code next in
@@ -181,25 +183,29 @@ let rec generate_code = function
       let next_code = generate_code next in
       curr_code ^ next_code
   | ENum num ->
-      let rd = Stack.top ct.to_return_stack in
-      str_of_instr_w (LI (rd, num))
+      if not (Stack.is_empty ct.to_return_stack) then
+        let rd = Stack.top ct.to_return_stack in
+        str_of_instr_w (LI (rd, num))
+      else ""
   | EVar name ->
-      let rd = Stack.top ct.to_return_stack in
-      let rs =
-        begin match Hashtbl.find_opt symbol_table name with
-        | Some found ->
-            begin match found with
-            | SVar { placement : splacement } ->
-                begin match placement with
-                | SPlaceIsReg reg -> reg
-                | _ -> raise @@ GenError "SPlaceIsStack: Not implemented"
-                end
-            | _ -> raise @@ GenError "Expected variable, but got function"
-            end
-        | None -> raise @@ GenError (sprintf "Unitialized variable '%s'" name)
-        end
-      in
-      str_of_instr_w (MV (rd, rs))
+      if not (Stack.is_empty ct.to_return_stack) then
+        let rd = Stack.top ct.to_return_stack in
+        let rs =
+          begin match Hashtbl.find_opt symbol_table name with
+          | Some found ->
+              begin match found with
+              | SVar { placement : splacement } ->
+                  begin match placement with
+                  | SPlaceIsReg reg -> reg
+                  | _ -> raise @@ GenError "SPlaceIsStack: Not implemented"
+                  end
+              | _ -> raise @@ GenError "Expected variable, but got function"
+              end
+          | None -> raise @@ GenError (sprintf "Unitialized variable '%s'" name)
+          end
+        in
+        str_of_instr_w (MV (rd, rs))
+      else ""
   | ECond (left, op, right) ->
       let label_name =
         ct.function_name ^ "_then_" ^ string_of_int ct.amount_of_if
@@ -309,74 +315,77 @@ let rec generate_code = function
   | ECall (name, args) ->
       ct.has_callings <- true;
 
-      let rd = Stack.top ct.to_return_stack in
-      let is_closure =
-        begin match Hashtbl.find_opt symbol_table name with
-        | Some v ->
-            begin match v with
-            | SFunc { amount_args } ->
-                let put_args = List.length args in
-                if put_args < amount_args then true
-                else if put_args = amount_args then false
-                else
+      if not (Stack.is_empty ct.to_return_stack) then (
+        let rd = Stack.top ct.to_return_stack in
+        let is_closure =
+          begin match Hashtbl.find_opt symbol_table name with
+          | Some v ->
+              begin match v with
+              | SFunc { amount_args } ->
+                  let put_args = List.length args in
+                  if put_args < amount_args then true
+                  else if put_args = amount_args then false
+                  else
+                    raise
+                    @@ GenError
+                         (sprintf
+                            "Attempt to put %d arguments to function `%s`, but \
+                             it has %d."
+                            put_args name amount_args)
+              | _ ->
                   raise
                   @@ GenError
-                       (sprintf
-                          "Attempt to put %d arguments to function `%s`, but \
-                           it has %d."
-                          put_args name amount_args)
-            | _ ->
-                raise
-                @@ GenError
-                     (sprintf "Attempt to call variable `%s` as function" name)
-            end
-        | _ -> raise @@ GenError (sprintf "Function `%s` is not found" name)
-        end
-      in
+                       (sprintf "Attempt to call variable `%s` as function" name)
+              end
+          | _ -> raise @@ GenError (sprintf "Function `%s` is not found" name)
+          end
+        in
 
-      let code =
-        if is_closure then generate_code (EClosure (name, args))
-        else begin
-          let arg_i = ref 0 in
-          let args_str =
-            List.map
-              (fun arg ->
-                let rs = alloc_and_push_reg () in
-                let arg_str = generate_code arg in
-                pop_and_check_reg rs;
-                free_temp_register rs;
-                let arg_res_move =
-                  str_of_instr_w (MV ("a" ^ string_of_int !arg_i, rs))
-                in
-                arg_i := !arg_i + 1;
-                arg_str ^ arg_res_move)
-              args
-          in
-          let args_code = String.concat "" args_str in
-          args_code ^ str_of_instr_w (CALL name)
-        end
-      in
-      (* Проблема в том, что если положить результат от вызова функции в a0, 
+        let code =
+          if is_closure then generate_code (EClosure (name, args))
+          else begin
+            let arg_i = ref 0 in
+            let args_str =
+              List.map
+                (fun arg ->
+                  let rs = alloc_and_push_reg () in
+                  let arg_str = generate_code arg in
+                  pop_and_check_reg rs;
+                  free_temp_register rs;
+                  let arg_res_move =
+                    str_of_instr_w (MV ("a" ^ string_of_int !arg_i, rs))
+                  in
+                  arg_i := !arg_i + 1;
+                  arg_str ^ arg_res_move)
+                args
+            in
+            let args_code = String.concat "" args_str in
+            args_code ^ str_of_instr_w (CALL name)
+          end
+        in
+        (* Проблема в том, что если положить результат от вызова функции в a0, 
     то нынешний аргумент a0 перезатрётся. Поэтому сразу после получения перекладываем результат во временный регистр,
     а аргумент восстанавливаем со стека *)
-      let pos = ref 8 in
-      let saved_regs = ref (str_of_instr_w (SD ("ra", 0, "sp"))) in
-      let loaded_regs = ref (str_of_instr_w (LD ("ra", 0, "sp"))) in
+        let pos = ref 8 in
+        let saved_regs = ref (str_of_instr_w (SD ("ra", 0, "sp"))) in
+        let loaded_regs = ref (str_of_instr_w (LD ("ra", 0, "sp"))) in
 
-      let to_save = get_registers_to_save () in
-      List.iter
-        (fun value ->
-          (* Если результат функции нужно положить в регистр x, то его сохранять и восстанавливать не нужно *)
-          if value <> rd then begin
-            saved_regs := !saved_regs ^ str_of_instr_w (SD (value, !pos, "sp"));
-            loaded_regs :=
-              !loaded_regs ^ str_of_instr_w (LD (value, !pos, "sp"))
-          end;
-          pos := !pos + 8)
-        to_save;
-      let move_res = str_of_instr_w (MV (rd, "a0")) in
+        let to_save = get_registers_to_save () in
+        List.iter
+          (fun value ->
+            (* Если результат функции нужно положить в регистр x, то его сохранять и восстанавливать не нужно *)
+            if value <> rd then begin
+              saved_regs :=
+                !saved_regs ^ str_of_instr_w (SD (value, !pos, "sp"));
+              loaded_regs :=
+                !loaded_regs ^ str_of_instr_w (LD (value, !pos, "sp"))
+            end;
+            pos := !pos + 8)
+          to_save;
+        let move_res = str_of_instr_w (MV (rd, "a0")) in
 
-      !saved_regs ^ code ^ move_res ^ !loaded_regs
+        !saved_regs ^ code ^ move_res ^ !loaded_regs)
+      else ""
   | ENothing -> ""
 
 let generate_program expr =
