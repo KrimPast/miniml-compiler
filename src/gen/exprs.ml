@@ -14,7 +14,8 @@ type expr =
   | ESeq of expr * expr
   | ESeqLocal of expr * expr
   | EFunc of { name : string; args : string list; body : expr; is_rec : bool }
-  | EClosure of string * expr list (* func name and args *)
+  | EClosureAlloc of string (* func name *)
+  | EClosureApply of string * expr (* func name and arg *)
   | ELet of string * expr
   | ECall of string * expr list (* func name and args *)
   | ENothing
@@ -26,6 +27,9 @@ type splacement =
 type sexpr =
   | SFunc of { amount_args : int }
   | SVar of { placement : splacement }
+  | SClosure of { placement : splacement; remaining_args : int }
+
+type call_type = FullCall | NewClosure | OldClosure
 
 let string_of_op = function
   | Add -> "+"

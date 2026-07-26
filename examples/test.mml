@@ -1,1 +1,5 @@
-let main = 42
+let add a b = a + b
+let main = 
+    let incr = add 53 in
+    let ko = incr 65 in 
+    ko
