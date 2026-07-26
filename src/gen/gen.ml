@@ -9,6 +9,7 @@ exception GenError of string
 
 type context = {
   mutable function_name : string;
+  mutable current_var : string;
   to_return_stack : string Stack.t;
   mutable has_callings : bool;
   mutable has_closures : bool;
@@ -21,6 +22,7 @@ let symbol_table : (string, sexpr) Hashtbl.t = Hashtbl.create 128
 let ct =
   {
     function_name = "main";
+    current_var = "let_error";
     to_return_stack = Stack.create ();
     has_callings = false;
     has_closures = false;
@@ -38,14 +40,18 @@ let get_registers_to_save () =
   Hashtbl.fold
     (fun _ v acc ->
       match v with
-      | SVar vr ->
-          begin match vr.placement with
-          | SPlaceIsReg reg -> reg :: acc
-          | _ -> acc
-          end
+      | SVar vr -> (
+          match vr.placement with SPlaceIsReg reg -> reg :: acc | _ -> acc)
+      | SClosure vr -> (
+          match vr.placement with SPlaceIsReg reg -> reg :: acc | _ -> acc)
       | _ -> acc)
     symbol_table []
   |> List.sort String.compare
+
+let get_sexpr_or_fall name error_msg =
+  match Hashtbl.find_opt symbol_table name with
+  | Some x -> x
+  | None -> raise @@ GenError error_msg
 
 let free_temp_register reg =
   if List.exists (fun x -> x = reg) !temp_regs then
@@ -58,21 +64,18 @@ let free_temp_register reg =
 let get_free_temp_register () =
   if List.length !temp_regs = 0 then
     raise @@ GenError "get_free_temp_register: Not enough registers!"
-  else begin
+  else
     let reg = List.hd !temp_regs in
     temp_regs := List.tl !temp_regs;
     reg
-  end
 
 let get_free_arg_register () =
   let busy_registers = get_registers_to_save () in
-
   let maybe_reg =
     List.find_opt
       (fun el -> not (List.mem el busy_registers))
       [ "a0"; "a1"; "a2"; "a3"; "a4"; "a5"; "a6"; "a7" ]
   in
-
   match maybe_reg with
   | Some reg -> reg
   | _ -> raise @@ GenError "Not enough argument registers!"
@@ -87,7 +90,6 @@ let alloc_and_push_reg () =
 let pop_and_check_reg rs =
   if Stack.is_empty ct.to_return_stack then
     raise @@ GenError "pop_and_check_reg: Return-stack is empty";
-
   let maybe_rs = Stack.pop ct.to_return_stack in
   if maybe_rs <> rs then
     raise
@@ -98,41 +100,33 @@ let pop_and_check_reg rs =
 let rec generate_code = function
   | EFunc { name; args; body; is_rec } ->
       ct.function_name <- name;
+      ct.current_var <- name;
       ct.has_callings <- false;
       ct.amount_of_if <- 0;
-
       let saved_symbol_table = Hashtbl.copy symbol_table in
-
       List.iter
         (fun arg ->
           let new_reg = get_free_arg_register () in
           Hashtbl.add symbol_table arg
             (SVar { placement = SPlaceIsReg new_reg }))
         args;
-
       Stack.push "a0" ct.to_return_stack;
-
       let sfunc = SFunc { amount_args = List.length args } in
       if is_rec then Hashtbl.replace symbol_table name sfunc;
-
       let body = generate_code body in
-
       ct.stack_size <-
         (((List.length @@ get_registers_to_save ()) / 2) + 1) * 16;
       hash_table_reassign symbol_table saved_symbol_table;
       Hashtbl.replace symbol_table name sfunc;
       pop_and_check_reg "a0";
-
       (* If outer callings is exist in this function, then save our arguments *)
-      if ct.has_callings = true then begin
+      if ct.has_callings = true then
         let alloc_frame = str_of_instr_w (ADDI ("sp", "sp", -ct.stack_size)) in
         let dealloc_frame = str_of_instr_w (ADDI ("sp", "sp", ct.stack_size)) in
-
         str_of_instr_w (LABEL name)
         ^ alloc_frame ^ body ^ dealloc_frame ^ str_of_instr_w RET
-      end
       else str_of_instr_w (LABEL name) ^ body ^ str_of_instr_w RET
-  | EIf (cond, thn, els) -> begin
+  | EIf (cond, thn, els) ->
       ct.amount_of_if <- ct.amount_of_if + 1;
       let then_name =
         ct.function_name ^ "_then_" ^ string_of_int ct.amount_of_if
@@ -144,33 +138,26 @@ let rec generate_code = function
       let fin_label = str_of_instr_w (LABEL fin_name) in
       let jump_final = str_of_instr_w (J fin_name) in
       let condition = generate_code cond in
-
       let then_code = generate_code thn in
       let else_code = generate_code els in
-
       condition ^ else_code ^ jump_final ^ then_label ^ then_code ^ fin_label
-    end
   | EBinop (op, left, right) ->
       if not (Stack.is_empty ct.to_return_stack) then (
         let rs1 = alloc_and_push_reg () in
         let left_code = generate_code left in
         pop_and_check_reg rs1;
-
         let rs2 = alloc_and_push_reg () in
         let right_code = generate_code right in
         pop_and_check_reg rs2;
-
         free_temp_register rs1;
         free_temp_register rs2;
-
         let rd = Stack.top ct.to_return_stack in
         let inst =
-          begin match op with
+          match op with
           | Add -> str_of_instr_w (ADD (rd, rs1, rs2))
           | Sub -> str_of_instr_w (SUB (rd, rs1, rs2))
           | Multiply -> str_of_instr_w (MUL (rd, rs1, rs2))
           | Divide -> str_of_instr_w (DIV (rd, rs1, rs2))
-          end
         in
         left_code ^ right_code ^ inst)
       else ""
@@ -191,38 +178,33 @@ let rec generate_code = function
       if not (Stack.is_empty ct.to_return_stack) then
         let rd = Stack.top ct.to_return_stack in
         let rs =
-          begin match Hashtbl.find_opt symbol_table name with
-          | Some found ->
-              begin match found with
-              | SVar { placement : splacement } ->
-                  begin match placement with
+          match Hashtbl.find_opt symbol_table name with
+          | Some found -> (
+              match found with
+              | SVar { placement : splacement } -> (
+                  match placement with
                   | SPlaceIsReg reg -> reg
-                  | _ -> raise @@ GenError "SPlaceIsStack: Not implemented"
-                  end
-              | _ -> raise @@ GenError "Expected variable, but got function"
-              end
+                  | _ -> raise @@ GenError "SPlaceIsStack: Not implemented")
+              | _ -> raise @@ GenError "Expected variable, but got function")
           | None -> raise @@ GenError (sprintf "Unitialized variable '%s'" name)
-          end
         in
         str_of_instr_w (MV (rd, rs))
       else ""
-  | ECond (left, op, right) ->
+  | ECond (left, op, right) -> (
       let label_name =
         ct.function_name ^ "_then_" ^ string_of_int ct.amount_of_if
       in
       let left_res = alloc_and_push_reg () in
       let left_code = generate_code left in
       pop_and_check_reg left_res;
-
       let right_res = alloc_and_push_reg () in
       let right_code = generate_code right in
       pop_and_check_reg right_res;
-
       free_temp_register left_res;
       free_temp_register right_res;
-
       left_code ^ right_code
-      ^ begin match op with
+      ^
+      match op with
       | TGe -> str_of_instr_w (BGE (left_res, right_res, label_name))
       | TGt -> str_of_instr_w (BGT (left_res, right_res, label_name))
       | TLt -> str_of_instr_w (BLT (left_res, right_res, label_name))
@@ -231,9 +213,10 @@ let rec generate_code = function
       | TNe -> str_of_instr_w (BNE (left_res, right_res, label_name))
       | _ ->
           raise @@ GenError "Expected one of '<=', '<', '>', '>=' in condition."
-      end
-  | ELet (name, expr) ->
-      begin match Hashtbl.find_opt symbol_table name with
+      )
+  | ELet (name, expr) -> (
+      ct.current_var <- name;
+      match Hashtbl.find_opt symbol_table name with
       | Some _ ->
           (* По канону, присвоение тому же имени в miniML возможно, но пока ограничимся этим *)
           raise @@ GenError (sprintf "ELet: Attempt to reuse `%s` name." name)
@@ -241,109 +224,150 @@ let rec generate_code = function
           let rd = get_free_arg_register () in
           Stack.push rd ct.to_return_stack;
           let code = generate_code expr in
-
-          Hashtbl.add symbol_table name (SVar { placement = SPlaceIsReg rd });
+          if Hashtbl.find_opt symbol_table name = None then
+            (* Костыль для реализации замыканий *)
+            Hashtbl.add symbol_table name (SVar { placement = SPlaceIsReg rd });
           pop_and_check_reg rd;
-          code
-      end
-  | EClosure (name, args) ->
+          code)
+  | EClosureAlloc func ->
       ct.has_closures <- true;
-      let alloc_stack = str_of_instr_w (ADDI ("sp", "sp", -48)) in
-      let alloc_closure =
-        str_of_instr_w (LA ("a0", name))
-        ^ str_of_instr_w (LI ("a1", List.length args))
-        ^ str_of_instr_w (CALL "alloc_closure")
-        ^ str_of_instr_w (MV ("s0", "a0"))
+
+      let sexpr =
+        get_sexpr_or_fall func
+          (sprintf "Excepted that `%s` is initialized." func)
+      in
+      let args_length =
+        match sexpr with
+        | SFunc { amount_args } -> amount_args
+        | _ ->
+            raise @@ GenError (sprintf "Excepted that `%s` is function." func)
       in
 
-      let pos = ref 8 in
-      let saved_regs = ref (str_of_instr_w (SD ("ra", 0, "sp"))) in
-      let loaded_regs = ref (str_of_instr_w (LD ("ra", 0, "sp"))) in
+      let load_func_address = str_of_instr_w (LA ("a0", func)) in
+      let load_args_length = str_of_instr_w (LI ("a1", args_length)) in
+      let call_closure_alloc = str_of_instr_w (CALL "closure_alloc") in
 
-      let to_save = get_registers_to_save () in
-
-      List.iter
-        (fun value ->
-          saved_regs := !saved_regs ^ str_of_instr_w (SD (value, !pos, "sp"));
-          (* Если результат функции нужно положить в регистр x, то его сохранять и восстанавливать не нужно *)
-          if value <> "a0" then begin
-            loaded_regs :=
-              !loaded_regs ^ str_of_instr_w (LD (value, !pos, "sp"))
-          end;
-          pos := !pos + 8)
-        to_save;
-
-      let load_a0 = str_of_instr_w (LD ("a0", 8, "sp")) in
-
-      (* let save_a0 = str_of_instr_w (SD ("a0", !pos, "sp")) in *)
-      let args_len = List.length args in
-      let arg_i = ref 0 in
-      let s0_location = !pos in
-      let data_location = !pos + 8 in
-
-      let args_str =
-        List.map
-          (fun arg ->
-            let applyN_args =
-              str_of_instr_w (ADDI ("a1", "sp", data_location))
-              ^ str_of_instr_w (LI ("a2", 8))
-            in
-
-            let rs = alloc_and_push_reg () in
-            let arg_code = generate_code arg in
-            pop_and_check_reg rs;
-            free_temp_register rs;
-            let rs_save = str_of_instr_w (SD (rs, 0, "a1")) in
-
-            let load_closure = str_of_instr_w (MV ("a0", "s0")) in
-            let load_a0_curr = if !arg_i <> args_len - 1 then load_a0 else "" in
-            arg_i := !arg_i + 1;
-
-            arg_code ^ applyN_args ^ rs_save ^ load_closure
-            ^ str_of_instr_w (CALL "applyN")
-            ^ load_a0_curr ^ !loaded_regs)
-          args
+      let rd_move =
+        if not (Stack.is_empty ct.to_return_stack) then
+          str_of_instr_w (MV (Stack.top ct.to_return_stack, "a0"))
+        else ""
       in
-      let args_code = String.concat "" args_str in
-      let dealloc_stack = str_of_instr_w (ADDI ("sp", "sp", 48)) in
+      load_func_address ^ load_args_length ^ call_closure_alloc ^ rd_move
+  | EClosureApply (closure, arg) ->
+      (* считаем expr-аргумент, кладём его на стек
+          грузим в a0 closure
+          грузим в a1 адрес результата expr-а
+      *)
+      ct.has_closures <- true;
+      let alloc_stack = str_of_instr_w (ADDI ("sp", "sp", -16)) in
+      let dealloc_stack = str_of_instr_w (ADDI ("sp", "sp", 16)) in
 
-      alloc_stack
-      ^ str_of_instr_w (SD ("s0", s0_location, "sp"))
-      ^ !saved_regs ^ alloc_closure ^ load_a0 ^ !loaded_regs ^ args_code
-      ^ str_of_instr_w (LD ("s0", s0_location, "sp"))
-      ^ dealloc_stack
+      let sexp =
+        get_sexpr_or_fall closure
+          (sprintf "Attempt to use closure `%s` before initialization" closure)
+      in
+
+      let place =
+        begin match sexp with
+        | SClosure { placement; remaining_args } ->
+            Hashtbl.replace symbol_table closure
+              (SClosure { placement; remaining_args = remaining_args - 1 });
+            placement
+        | _ ->
+            raise @@ GenError (sprintf "Expected that `%s` is closure." closure)
+        end
+      in
+      let closure_reg =
+        begin match place with
+        | SPlaceIsReg x -> x
+        | _ -> raise @@ GenError "Store on stack is not implemented"
+        end
+      in
+
+      let load_closure = str_of_instr_w (MV ("a0", closure_reg)) in
+      let load_data_ptr = str_of_instr_w (MV ("a1", "sp")) in
+      let call_closure_apply = str_of_instr_w (CALL "closure_apply") in
+      let rs = alloc_and_push_reg () in
+      let arg_code = generate_code arg in
+      pop_and_check_reg rs;
+      free_temp_register rs;
+
+      let arg_result_save = str_of_instr_w (SD (rs, 0, "a1")) in
+
+      alloc_stack ^ arg_code ^ load_closure ^ load_data_ptr ^ arg_result_save
+      ^ call_closure_apply ^ dealloc_stack
   | ECall (name, args) ->
       ct.has_callings <- true;
-
-      if not (Stack.is_empty ct.to_return_stack) then (
+      if not (Stack.is_empty ct.to_return_stack) then begin
         let rd = Stack.top ct.to_return_stack in
-        let is_closure =
-          begin match Hashtbl.find_opt symbol_table name with
-          | Some v ->
-              begin match v with
-              | SFunc { amount_args } ->
-                  let put_args = List.length args in
-                  if put_args < amount_args then true
-                  else if put_args = amount_args then false
-                  else
-                    raise
-                    @@ GenError
-                         (sprintf
-                            "Attempt to put %d arguments to function `%s`, but \
-                             it has %d."
-                            put_args name amount_args)
-              | _ ->
-                  raise
-                  @@ GenError
-                       (sprintf "Attempt to call variable `%s` as function" name)
-              end
-          | _ -> raise @@ GenError (sprintf "Function `%s` is not found" name)
-          end
+        let sexp =
+          get_sexpr_or_fall name (sprintf "Function `%s` is not found" name)
+        in
+        let closure_type =
+          match sexp with
+          | SClosure _ -> OldClosure
+          | SFunc { amount_args } ->
+              let put_args = List.length args in
+              if put_args < amount_args then (
+                Hashtbl.replace symbol_table ct.current_var
+                  (SClosure
+                     {
+                       placement = SPlaceIsReg rd;
+                       remaining_args = amount_args - put_args;
+                     });
+                NewClosure)
+              else if put_args = amount_args then FullCall
+              else
+                raise
+                @@ GenError
+                     (sprintf
+                        "Attempt to put %d arguments to function `%s`, but it \
+                         has %d."
+                        put_args name amount_args)
+          | _ ->
+              raise
+              @@ GenError
+                   (sprintf "Attempt to call variable `%s` as function" name)
         in
 
-        let code =
-          if is_closure then generate_code (EClosure (name, args))
-          else begin
+        let pos = ref 8 in
+        let saved_regs = ref (str_of_instr_w (SD ("ra", 0, "sp"))) in
+        let loaded_regs = ref (str_of_instr_w (LD ("ra", 0, "sp"))) in
+
+        let move_res = str_of_instr_w (MV (rd, "a0")) in
+        let to_save = get_registers_to_save () in
+        List.iter
+          (fun value ->
+            (* Если результат функции нужно положить в регистр x, то его сохранять и восстанавливать не нужно *)
+            if value <> rd then begin
+              saved_regs :=
+                !saved_regs ^ str_of_instr_w (SD (value, !pos, "sp"));
+              loaded_regs :=
+                !loaded_regs ^ str_of_instr_w (LD (value, !pos, "sp"))
+            end;
+            pos := !pos + 8)
+          to_save;
+
+        match closure_type with
+        | NewClosure ->
+            let closure_alloc = generate_code (EClosureAlloc name) in
+            let closure_args =
+              List.map
+                (fun arg ->
+                  generate_code (EClosureApply (ct.current_var, arg))
+                  ^ !loaded_regs)
+                args
+            in
+            !saved_regs ^ closure_alloc ^ String.concat "" closure_args
+        | OldClosure ->
+            let closure_args =
+              List.map
+                (fun arg ->
+                  generate_code (EClosureApply (name, arg)) ^ !loaded_regs)
+                args
+            in
+            !saved_regs ^ String.concat "" closure_args
+        | FullCall ->
             let arg_i = ref 0 in
             let args_str =
               List.map
@@ -360,35 +384,17 @@ let rec generate_code = function
                 args
             in
             let args_code = String.concat "" args_str in
-            args_code ^ str_of_instr_w (CALL name)
-          end
-        in
-        (* Проблема в том, что если положить результат от вызова функции в a0, 
-    то нынешний аргумент a0 перезатрётся. Поэтому сразу после получения перекладываем результат во временный регистр,
-    а аргумент восстанавливаем со стека *)
-        let pos = ref 8 in
-        let saved_regs = ref (str_of_instr_w (SD ("ra", 0, "sp"))) in
-        let loaded_regs = ref (str_of_instr_w (LD ("ra", 0, "sp"))) in
-
-        let to_save = get_registers_to_save () in
-        List.iter
-          (fun value ->
-            (* Если результат функции нужно положить в регистр x, то его сохранять и восстанавливать не нужно *)
-            if value <> rd then begin
-              saved_regs :=
-                !saved_regs ^ str_of_instr_w (SD (value, !pos, "sp"));
-              loaded_regs :=
-                !loaded_regs ^ str_of_instr_w (LD (value, !pos, "sp"))
-            end;
-            pos := !pos + 8)
-          to_save;
-        let move_res = str_of_instr_w (MV (rd, "a0")) in
-
-        !saved_regs ^ code ^ move_res ^ !loaded_regs)
+            !saved_regs ^ args_code ^ str_of_instr_w (CALL name) ^ move_res
+            ^ !loaded_regs
+      end
       else ""
   | ENothing -> ""
 
 let generate_program expr =
   let runtime = if ct.has_closures then Runtime_risc_v.runtime else "" in
   let code = generate_code expr in
+  if not (Stack.is_empty ct.to_return_stack) then (
+    print_endline "WARNING: Return stack is not empty!";
+    print_endline "WARNING: Stack elements:";
+    Stack.iter (fun el -> print_endline el) ct.to_return_stack);
   runtime ^ code
