@@ -30,6 +30,7 @@ type sexpr =
   | SClosure of { placement : splacement; remaining_args : int }
 
 type call_type = FullCall | NewClosure | OldClosure
+type stack_action = StoreRegs | LoadRegs
 
 let string_of_op = function
   | Add -> "+"

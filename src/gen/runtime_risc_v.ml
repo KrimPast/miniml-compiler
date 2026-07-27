@@ -93,6 +93,7 @@ closure_apply:
     ld s2, 24(sp)
 
     beq t0, t1, closure_args_sub
+    addi sp, sp, 32
     # Output may be: 1) result of closure function; 2) nothing
     ret
 
