@@ -37,16 +37,41 @@ let hash_table_reassign dest src =
   Hashtbl.iter (fun k v -> Hashtbl.replace dest k v) src
 
 let get_registers_to_save () =
-  Hashtbl.fold
-    (fun _ v acc ->
-      match v with
-      | SVar vr -> (
-          match vr.placement with SPlaceIsReg reg -> reg :: acc | _ -> acc)
-      | SClosure vr -> (
-          match vr.placement with SPlaceIsReg reg -> reg :: acc | _ -> acc)
-      | _ -> acc)
-    symbol_table []
-  |> List.sort String.compare
+  "ra"
+  :: (Hashtbl.fold
+        (fun _ v acc ->
+          match v with
+          | SVar vr -> (
+              match vr.placement with SPlaceIsReg reg -> reg :: acc | _ -> acc)
+          | SClosure vr -> (
+              match vr.placement with SPlaceIsReg reg -> reg :: acc | _ -> acc)
+          | _ -> acc)
+        symbol_table []
+     |> List.sort String.compare)
+
+let stack_do_action (ac : stack_action) (predicate : string -> bool) =
+  let regs_list = get_registers_to_save () in
+  let reduced_regs_list = List.filter predicate regs_list in
+  let pos = ref 0 in
+  List.map
+    (fun reg ->
+      let curr =
+        match ac with
+        | StoreRegs -> str_of_instr_w (SD (reg, !pos, "sp"))
+        | LoadRegs -> str_of_instr_w (LD (reg, !pos, "sp"))
+      in
+      pos := !pos + 8;
+      curr)
+    reduced_regs_list
+  |> String.concat ""
+
+let stack_do_all (_ : string) = true
+
+let stack_do_all_but_not_certain_reg (reg : string) (certain_reg : string) =
+  reg <> certain_reg
+
+let stack_do_all_but_not_a0 (reg : string) =
+  stack_do_all_but_not_certain_reg reg "a0"
 
 let get_sexpr_or_fall name error_msg =
   match Hashtbl.find_opt symbol_table name with
@@ -267,12 +292,12 @@ let rec generate_code = function
           (sprintf "Attempt to use closure `%s` before initialization" closure)
       in
 
-      let place =
+      let place, remain_args =
         begin match sexp with
         | SClosure { placement; remaining_args } ->
             Hashtbl.replace symbol_table closure
               (SClosure { placement; remaining_args = remaining_args - 1 });
-            placement
+            (placement, remaining_args)
         | _ ->
             raise @@ GenError (sprintf "Expected that `%s` is closure." closure)
         end
@@ -292,10 +317,16 @@ let rec generate_code = function
       pop_and_check_reg rs;
       free_temp_register rs;
 
+      let move_res =
+        if (not (Stack.is_empty ct.to_return_stack)) && remain_args = 0 then
+          str_of_instr_w (MV (Stack.top ct.to_return_stack, "a0"))
+        else ""
+      in
+
       let arg_result_save = str_of_instr_w (SD (rs, 0, "a1")) in
 
       alloc_stack ^ arg_code ^ load_closure ^ load_data_ptr ^ arg_result_save
-      ^ call_closure_apply ^ dealloc_stack
+      ^ call_closure_apply ^ move_res ^ dealloc_stack
   | ECall (name, args) ->
       ct.has_callings <- true;
       if not (Stack.is_empty ct.to_return_stack) then begin
@@ -330,43 +361,36 @@ let rec generate_code = function
                    (sprintf "Attempt to call variable `%s` as function" name)
         in
 
-        let pos = ref 8 in
-        let saved_regs = ref (str_of_instr_w (SD ("ra", 0, "sp"))) in
-        let loaded_regs = ref (str_of_instr_w (LD ("ra", 0, "sp"))) in
-
+        let saved_regs =
+          stack_do_action StoreRegs (stack_do_all_but_not_certain_reg rd)
+        in
+        let loaded_regs =
+          stack_do_action LoadRegs (stack_do_all_but_not_certain_reg rd)
+        in
         let move_res = str_of_instr_w (MV (rd, "a0")) in
-        let to_save = get_registers_to_save () in
-        List.iter
-          (fun value ->
-            (* Если результат функции нужно положить в регистр x, то его сохранять и восстанавливать не нужно *)
-            if value <> rd then begin
-              saved_regs :=
-                !saved_regs ^ str_of_instr_w (SD (value, !pos, "sp"));
-              loaded_regs :=
-                !loaded_regs ^ str_of_instr_w (LD (value, !pos, "sp"))
-            end;
-            pos := !pos + 8)
-          to_save;
 
         match closure_type with
         | NewClosure ->
             let closure_alloc = generate_code (EClosureAlloc name) in
+            let new_saved_regs = stack_do_action StoreRegs stack_do_all in
+            let new_loaded_regs = stack_do_action LoadRegs stack_do_all in
             let closure_args =
               List.map
                 (fun arg ->
                   generate_code (EClosureApply (ct.current_var, arg))
-                  ^ !loaded_regs)
+                  ^ new_loaded_regs)
                 args
             in
-            !saved_regs ^ closure_alloc ^ String.concat "" closure_args
+            saved_regs ^ closure_alloc ^ loaded_regs ^ new_saved_regs
+            ^ String.concat "" closure_args
         | OldClosure ->
             let closure_args =
               List.map
                 (fun arg ->
-                  generate_code (EClosureApply (name, arg)) ^ !loaded_regs)
+                  generate_code (EClosureApply (name, arg)) ^ loaded_regs)
                 args
             in
-            !saved_regs ^ String.concat "" closure_args
+            saved_regs ^ String.concat "" closure_args
         | FullCall ->
             let arg_i = ref 0 in
             let args_str =
@@ -384,15 +408,15 @@ let rec generate_code = function
                 args
             in
             let args_code = String.concat "" args_str in
-            !saved_regs ^ args_code ^ str_of_instr_w (CALL name) ^ move_res
-            ^ !loaded_regs
+            saved_regs ^ args_code ^ str_of_instr_w (CALL name) ^ move_res
+            ^ loaded_regs
       end
       else ""
   | ENothing -> ""
 
 let generate_program expr =
-  let runtime = if ct.has_closures then Runtime_risc_v.runtime else "" in
   let code = generate_code expr in
+  let runtime = if ct.has_closures then Runtime_risc_v.runtime else "" in
   if not (Stack.is_empty ct.to_return_stack) then (
     print_endline "WARNING: Return stack is not empty!";
     print_endline "WARNING: Stack elements:";
