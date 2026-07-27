@@ -15,6 +15,7 @@ type expr =
   | ESeqLocal of expr * expr
   | EFunc of { name : string; args : string list; body : expr; is_rec : bool }
   | EClosureAlloc of string (* func name *)
+  | EClosureCopy of string (* closure *)
   | EClosureApply of string * expr (* func name and arg *)
   | ELet of string * expr
   | ECall of string * expr list (* func name and args *)

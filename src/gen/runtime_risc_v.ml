@@ -30,22 +30,24 @@ closure_alloc:
     ret
 closure_copy:
     # Input: a0 - closure ptr
-    addi sp, sp, -16
+    addi sp, sp, -32
     
     lw a1, 0(a0)
     slli a1, a1, 3 	# a1 *= 8
     addi a1, a1, 16	
     sw a1, 0(sp)
     sd a0, 8(sp)
+    sd ra, 16(sp)
 
     li a0, 1
     call calloc@plt
 
-    lw a1, 8(sp) # load closure ptr
-    ld a2, 0(sp) # load data size
+    ld a1, 8(sp) # load closure ptr
+    lw a2, 0(sp) # load data size
     call memcpy@plt
 
-    addi sp, sp, 16
+    ld ra, 16(sp)
+    addi sp, sp, 32
     # Output: a0 - ptr to clonned closure data
     ret
 closure_apply:
