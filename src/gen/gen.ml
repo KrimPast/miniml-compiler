@@ -278,12 +278,37 @@ let rec generate_code = function
         else ""
       in
       load_func_address ^ load_args_length ^ call_closure_alloc ^ rd_move
+  | EClosureCopy closure ->
+      let sexpr =
+        get_sexpr_or_fall closure
+          (sprintf "Excepted that `%s` is initialized." closure)
+      in
+      let rd = Stack.top ct.to_return_stack in
+      let place =
+        begin match sexpr with
+        | SClosure { placement; remaining_args } ->
+            Hashtbl.replace symbol_table ct.current_var
+              (SClosure { placement = SPlaceIsReg rd; remaining_args });
+            placement
+        | _ ->
+            raise @@ GenError (sprintf "Expected that `%s` is closure." closure)
+        end
+      in
+      let closure_reg =
+        begin match place with
+        | SPlaceIsReg x -> x
+        | _ -> raise @@ GenError "Store on stack is not implemented"
+        end
+      in
+      let move_closure_reg = str_of_instr_w (MV ("a0", closure_reg)) in
+      let call_closure_copy = str_of_instr_w (CALL "closure_copy") in
+      let move_copy = str_of_instr_w (MV (rd, "a0")) in
+      move_closure_reg ^ call_closure_copy ^ move_copy
   | EClosureApply (closure, arg) ->
       (* считаем expr-аргумент, кладём его на стек
           грузим в a0 closure
           грузим в a1 адрес результата expr-а
       *)
-      ct.has_closures <- true;
       let alloc_stack = str_of_instr_w (ADDI ("sp", "sp", -16)) in
       let dealloc_stack = str_of_instr_w (ADDI ("sp", "sp", 16)) in
 
@@ -318,8 +343,12 @@ let rec generate_code = function
       free_temp_register rs;
 
       let move_res =
-        if (not (Stack.is_empty ct.to_return_stack)) && remain_args = 0 then
-          str_of_instr_w (MV (Stack.top ct.to_return_stack, "a0"))
+        if (not (Stack.is_empty ct.to_return_stack)) && remain_args = 0 then begin
+          let rd = Stack.top ct.to_return_stack in
+          Hashtbl.replace symbol_table ct.current_var
+            (SVar { placement = SPlaceIsReg rd });
+          str_of_instr_w (MV (rd, "a0"))
+        end
         else ""
       in
 
@@ -384,13 +413,16 @@ let rec generate_code = function
             saved_regs ^ closure_alloc ^ loaded_regs ^ new_saved_regs
             ^ String.concat "" closure_args
         | OldClosure ->
+            let copy_closure = generate_code (EClosureCopy name) in
             let closure_args =
               List.map
                 (fun arg ->
-                  generate_code (EClosureApply (name, arg)) ^ loaded_regs)
+                  generate_code (EClosureApply (ct.current_var, arg))
+                  ^ loaded_regs)
                 args
             in
-            saved_regs ^ String.concat "" closure_args
+            saved_regs ^ copy_closure ^ loaded_regs
+            ^ String.concat "" closure_args
         | FullCall ->
             let arg_i = ref 0 in
             let args_str =
