@@ -1,5 +1,5 @@
 let add a b = a + b
-let main smth = 
-    let incr = add 53 in
-    let ko = incr 65 in 
-    ko
+let func x y = 
+    let f = add x in
+    let s = f y in 
+    s
