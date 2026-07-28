@@ -1,4 +1,4 @@
-# Kugeru - miniML compiler
+# Simple MiniML compiler
 ## Implemented
 - Compilation of recursive `factorial`, `fibonacci` and `gcd` functions.
 - Support of local variables.
