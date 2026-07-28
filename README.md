@@ -1,21 +1,20 @@
-# Simple MiniML compiler
+# Linre - miniML compiler
 ## Implemented
 - Compilation of recursive `factorial`, `fibonacci` and `gcd` functions.
-- Support of local variables.
-- Support of complex arithmetic equations.
-- Closures.
+- Closures, partial function application
 - `if`-`then`-`else` clause.
+- Support of
+    - definition and calling of functions
+    - local variables
+    - complex arithmetic equations
 ## Building
 ```sh
 dune build --profile release
 ```
 ## Usage
-Go to build folder:
 ```sh
-cd ./_build/default/src/
+dune exec -- linre <infile.mml>
 ```
-In this folder you will see `main.exe`.
-
 After executing this program and putting as first argument miniML program, the RISC-V assembly code will be output to the console, which is what the compiler produces.
 
 If you want to execute this code, you need to have RISC-V architecture on your device or download special utilities:
@@ -31,7 +30,7 @@ sudo pacman -S riscv64-linux-gnu-gcc qemu-user qemu-system-riscv qemu-tools
 ## Building source code in assembler and executing binaries
 You can find examples of miniML code in `./examples/` directory.
 ```sh
-./main.exe infile.mml > main.S
+dune exec -- linre infile.mml > main.S
 ```
 Don't forget put `main` body to use your function.
 Example for `factorial`:
@@ -44,7 +43,7 @@ main:
 ```
 And after:
 ```sh
-riscv64-linux-gnu-gcc main.S -o main.out && 
+riscv64-linux-gnu-gcc main.S && 
 qemu-riscv64 -L /usr/riscv64-linux-gnu -cpu rv64 ./a.out
 ```
 

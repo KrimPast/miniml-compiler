@@ -9,5 +9,6 @@
 
 (executable
  (name main)
+ (public_name linre)
  (modules main)
  (libraries tokens lex parser gn))

@@ -25,16 +25,16 @@ let check_if_token = function
   | _ -> Undefined
 
 let print_short_help () =
-  {|compiler.exe: unbound arguments.
+  {|linre: unbound arguments.
 To show help use "--help" flag. |}
   |> print_endline
 
 let print_help () =
   {|NAME
-    compiler.exe - simple miniML compiler
+    linre - simple miniML compiler
 
 SYNOPSIS
-    compiler.exe infile.ml [-a|-t|-S]
+    linre infile.ml [-a|-t|-S]
 
 OPTIONS
     -a, --all
