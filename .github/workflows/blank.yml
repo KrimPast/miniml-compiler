@@ -21,6 +21,8 @@ jobs:
           
       - name: Set up Dune
         uses: ocaml-dune/setup-dune@v2
+        with:
+          dune-test: false
 
       - name: Setup RISC-V GNU Toolchain
         uses: gregdavill/setup-riscv-gnu-toolchain@v2.0
