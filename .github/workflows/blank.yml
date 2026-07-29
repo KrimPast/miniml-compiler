@@ -21,10 +21,11 @@ jobs:
 
           # Ensure the expected compiler name exists
           if ! command -v riscv64-linux-gnu-gcc >/dev/null; then
-            sudo ln -s "$(command -v riscv64-linux-gnu-gcc-11)" /usr/local/bin/riscv64-linux-gnu-gcc
+            sudo ln -s "$(command -v riscv64-linux-gnu-gcc-11)" /usr/bin/riscv64-linux-gnu-gcc
           fi
 
           riscv64-linux-gnu-gcc --version
+          ls -l "$(which riscv64-linux-gnu-gcc)"
           
       - name: Setup OCaml
         uses: ocaml/setup-ocaml@v3
