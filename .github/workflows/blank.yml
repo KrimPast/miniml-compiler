@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup OCaml
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: 5.5.0
+          
+      - name: Set up Dune
+        uses: ocaml-dune/setup-dune@v2
+
+      - name: Setup RISC-V GNU Toolchain
+        uses: gregdavill/setup-riscv-gnu-toolchain@v2
+        with:
+          target: riscv64-linux-gnu
+
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: riscv64
+
+      - name: Run checks
+        run: |
+          dune build
+          dune runtest
