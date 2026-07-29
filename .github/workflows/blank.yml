@@ -14,20 +14,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Cache
-        uses: actions/cache@v5.1.0
-        with:
-          save-always: true
-
       - name: Setup OCaml
         uses: ocaml/setup-ocaml@v2.2.9
         with:
           ocaml-compiler: 5.5.0
-          
-      - name: Set up Dune
-        uses: ocaml-dune/setup-dune@v2
-        with:
-          dune-test: false
 
       - name: Setup RISC-V GNU Toolchain
         uses: gregdavill/setup-riscv-gnu-toolchain@v2.0
@@ -39,6 +29,9 @@ jobs:
         with:
           platforms: riscv64
 
+      - name: Set up Dune
+        uses: ocaml-dune/setup-dune@v2
+        
       - name: Run checks
         run: |
           dune build
