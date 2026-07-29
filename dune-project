@@ -5,6 +5,7 @@
 (package
  (name linre)
  (depends
-  (ocaml (>= "5.4.0"))
+  (ocaml (>= "5.2.0"))
   (dune (>= "3.0"))
   (ocamlformat :with-test)))
+  

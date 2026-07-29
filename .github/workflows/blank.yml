@@ -14,15 +14,24 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup RISC-V GNU Toolchain and QEMU
+      - name: Install RISC-V toolchain
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-riscv64-linux-gnu binutils-riscv64-linux-gnu qemu-user
+
+          # Ensure the expected compiler name exists
+          if ! command -v riscv64-linux-gnu-gcc >/dev/null; then
+            sudo ln -s "$(command -v riscv64-linux-gnu-gcc-11)" /usr/local/bin/riscv64-linux-gnu-gcc
+          fi
+
+          riscv64-linux-gnu-gcc --version
           
       - name: Setup OCaml
         uses: ocaml/setup-ocaml@v3
         with:
-          ocaml-compiler: 5.5.0
+          ocaml-compiler: 5.2.x
+          dune-cache: true
+          opam-pin: false
 
       - name: Install dependencies
         run: opam install . --deps-only --with-test
