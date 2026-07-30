@@ -1,5 +1,5 @@
 (* SPDX-License-Identifier: LGPL-3.0-only *)
-(* Copyright Nikita Egorov and Maksim Butyugov *)
+(* Copyright Nikita Egorov *)
 
 open Tokens
 

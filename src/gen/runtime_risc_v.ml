@@ -1,3 +1,6 @@
+(* SPDX-License-Identifier: LGPL-3.0-only *)
+(* Copyright Nikita Egorov *)
+
 let runtime =
   {|.text
 .global main
