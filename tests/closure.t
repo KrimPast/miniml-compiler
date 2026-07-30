@@ -11,6 +11,10 @@
   >     ecall"; 
   > }
 
+  $ if ! command -v riscv64-linux-gnu-gcc >/dev/null; then
+  > sudo ln -s "$(command -v riscv64-linux-gnu-gcc-11)" /usr/bin/riscv64-linux-gnu-gcc
+  > fi
+
   $ run () { 
   > riscv64-linux-gnu-gcc $1 -o a.out &&
   > qemu-riscv64 -L /usr/riscv64-linux-gnu -cpu rv64 ./a.out
