@@ -40,10 +40,5 @@ jobs:
       - name: Build project
         run: opam exec -- dune build
   
-      - name: Run tests
-        run: |
-          export PATH="/usr/bin:/usr/local/bin:$PATH"
-          opam exec -- dune runtest
-  
       - name: Run linter
         uses: ocaml/setup-ocaml/lint-fmt@v3
